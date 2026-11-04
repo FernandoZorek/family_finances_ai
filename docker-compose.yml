@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    image: family-finances
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      # o proxy do Docker não é loopback; ajuste para a rede do seu proxy reverso
+      TRUST_PROXY: ${TRUST_PROXY:-uniquelocal}
+    volumes:
+      - ./data:/data
+    # exponha só para o proxy reverso local (HTTPS fica no proxy)
+    ports:
+      - "127.0.0.1:3010:3010"

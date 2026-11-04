@@ -1,0 +1,9 @@
+{
+  "name": "Family Finances",
+  "short_name": "Family Finances",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fcfcfb",
+  "theme_color": "#2a78d6",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

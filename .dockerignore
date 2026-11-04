@@ -1,0 +1,13 @@
+node_modules
+data
+.git
+.env
+.env.*
+deploy/private
+deploy/.env.deploy
+*.pdf
+*.ofx
+*.db
+*.log
+.claude
+test

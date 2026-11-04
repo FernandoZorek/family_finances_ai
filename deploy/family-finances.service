@@ -1,0 +1,23 @@
+# systemd (opcional): copie para /etc/systemd/system/, ajuste caminhos e usuário, e rode
+#   sudo systemctl daemon-reload && sudo systemctl enable --now family-finances
+[Unit]
+Description=Family Finances
+After=network.target
+
+[Service]
+Type=simple
+User=family-finances
+WorkingDirectory=/opt/family-finances
+EnvironmentFile=/etc/family-finances.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+# endurecimento
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/family-finances
+
+[Install]
+WantedBy=multi-user.target

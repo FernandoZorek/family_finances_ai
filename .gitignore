@@ -1,0 +1,18 @@
+node_modules/
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.env.*
+!.env.example
+deploy/.env.deploy
+deploy/private/
+.claude/
+coverage/
+.DS_Store
+# extratos e faturas nunca vão para o git
+*.pdf
+*.ofx
+initial-passwords.txt

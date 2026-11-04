@@ -1,0 +1,40 @@
+{
+  "name": "family-finances",
+  "version": "1.0.0",
+  "description": "Self-hosted family finance dashboard: import Brazilian bank statements and credit card bills (PDF/OFX), categorize, forecast and compare months.",
+  "main": "server.js",
+  "license": "MIT",
+  "author": "Fernando Zorek",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FernandoZorek/family_finances.git"
+  },
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "lint": "eslint .",
+    "test": "node --test test/",
+    "check": "npm run lint && npm test",
+    "test:parsers": "node scripts/test-parsers.js",
+    "backup": "node scripts/backup.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.11.1",
+    "emoji-picker-element": "1.29.1",
+    "emoji-picker-element-data": "1.8.0",
+    "express": "^4.22.3",
+    "helmet": "^8.3.0",
+    "multer": "^2.5.0",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0"
+  }
+}
