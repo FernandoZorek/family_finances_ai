@@ -11,7 +11,7 @@ const { parseStatement } = require('../src/parsers');
     : [target];
   let fail = 0;
   for (const f of files) {
-    const r = await parseStatement(fs.readFileSync(f), f);
+    const r = await parseStatement(fs.readFileSync(f), f, { generic: true });
     const ok = r.statedTotal == null ? '?' : Math.abs(Math.round((r.statedTotal - r.computedTotal) * 100)) === 0 ? 'OK' : 'DIVERGE';
     if (ok === 'DIVERGE') fail++;
     console.log(`\n# ${path.basename(f)}\n  ${r.parserLabel} | titular: ${r.holder} | venc: ${r.dueDate || '-'} | ${r.transactions.length} lançamentos`);

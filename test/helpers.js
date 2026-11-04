@@ -22,7 +22,15 @@ async function startApp() {
 // cliente com cookie de sessão e cabeçalho CSRF do app
 function client(base) {
   let cookie = '';
-  return async function call(method, url, body, { csrf = true } = {}) {
+  // envio de arquivos (multipart), com a mesma sessão
+  const upload = async (files, fields = {}) => {
+    const fd = new FormData();
+    for (const [name, content] of files) fd.append('files', new Blob([content]), name);
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    const res = await fetch(base + '/api/imports', { method: 'POST', headers: { 'X-Requested-With': 'fetch', Cookie: cookie }, body: fd });
+    return { status: res.status, data: await res.json() };
+  };
+  const call = async function call(method, url, body, { csrf = true } = {}) {
     const headers = { ...(csrf ? { 'X-Requested-With': 'fetch' } : {}), ...(cookie ? { Cookie: cookie } : {}) };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const res = await fetch(base + url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -31,6 +39,8 @@ function client(base) {
     const data = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();
     return { status: res.status, data, headers: res.headers };
   };
+  call.upload = upload;
+  return call;
 }
 
 function initialPassword(dir, username) {

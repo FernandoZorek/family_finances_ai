@@ -20,7 +20,7 @@ async function refreshImportPeriods() {
   for (const r of db.prepare('SELECT id, filename, stored_path FROM imports').all()) {
     try {
       if (!r.stored_path || !fs.existsSync(r.stored_path)) continue;
-      const st = await parseStatement(fs.readFileSync(r.stored_path), r.filename);
+      const st = await parseStatement(fs.readFileSync(r.stored_path), r.filename, { generic: true });
       db.prepare('UPDATE imports SET period_start = ?, period_end = ?, due_date = COALESCE(?, due_date), amount_due = COALESCE(?, amount_due) WHERE id = ?').run(
         st.periodStart || null,
         st.periodEnd || null,

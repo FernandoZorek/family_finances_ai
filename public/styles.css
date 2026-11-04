@@ -437,3 +437,4 @@ button.main.editcat:hover .title { text-decoration: underline; }
 .goalbox { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
 .goalbox.short .goal-bar .real { background: var(--s4); }
 .usagek { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)) !important; margin-bottom: 4px; }
+.result.warnres { border-color: var(--warn-text); }

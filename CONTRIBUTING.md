@@ -20,6 +20,11 @@ Bank statements, bills, payslips, databases and screenshots with real data must 
 
 ## Adding a bank / document format
 
+Most formats don't need code: upload the file and create a reader in the app (CSV column mapping or AI). Readers are JSON
+models interpreted by `src/extractors.js` (see the PDF and CSV examples in `test/extractors.test.js`); presets for public CSV
+exports live in `PRESETS` there. Write a parser file only when a model can't express the layout (multi-column pages, totals
+spread over the page, etc.):
+
 1. Create `src/parsers/<bank><Type>.js` exporting `{ id, label, detect(text), parse(pages) }`.
    `parse` returns `{ bank, kind: 'conta' | 'cartao' | 'holerite', account, holder, periodStart, periodEnd,
    dueDate?, amountDue?, statedTotal, computedTotal, totalLabel, transactions: [{ date, description, amount, installment?, payment? }], warnings }`.

@@ -136,6 +136,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS budgets (
   monthly_limit REAL NOT NULL CHECK (monthly_limit > 0),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
+// Leitores declarativos para formatos sem leitor próprio (CSV ou PDF): modelo JSON, nunca código
+db.exec(`CREATE TABLE IF NOT EXISTS extractors (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  template TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT
+)`);
 // Uso de IA: cada chamada com tokens e custo estimado (por ação, período e total)
 db.exec(`CREATE TABLE IF NOT EXISTS ai_usage (
   id INTEGER PRIMARY KEY,

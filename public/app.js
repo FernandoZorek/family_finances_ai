@@ -1119,7 +1119,7 @@ function loadUsage(box, range = state.aiUsageRange || 'month') {
   const [, from, to] = RANGES[range];
   api(`/ai/usage?from=${from}&to=${to}`).then((u) => {
     const brlOf = (v) => (u.usd_brl && v != null ? ` <span class="muted small">(${brl(v * u.usd_brl)})</span>` : '');
-    const ACTION = { regras: '🏷️ Regras automáticas', insights: '💡 Insights', outro: 'Outros' };
+    const ACTION = { regras: '🏷️ Regras automáticas', insights: '💡 Insights', extrator: '🧩 Criar leitor', outro: 'Outros' };
     const rows = (list, key, label) =>
       list
         .map((x) => `<tr><td>${label(x[key])}</td><td class="r">${x.calls}${x.failed ? ` <span class="muted small">(${x.failed} com erro)</span>` : ''}</td><td class="r">${tokens(x.input_tokens)}</td><td class="r">${tokens(x.output_tokens)}</td><td class="r">${usd(x.cost_usd)}${brlOf(x.cost_usd)}</td></tr>`)
@@ -2012,9 +2012,9 @@ function viewEnviar(view) {
         <label class="drop" id="drop" for="files">
           <div class="big">📄</div>
           <div><b>Toque para escolher</b> ou arraste os arquivos aqui</div>
-          <div class="muted small">PDF ou OFX · vários de uma vez · até 15 MB cada</div>
+          <div class="muted small">PDF, OFX ou CSV · vários de uma vez · até 15 MB cada</div>
         </label>
-        <input type="file" id="files" accept=".pdf,.ofx,application/pdf" multiple class="hidden">
+        <input type="file" id="files" accept=".pdf,.ofx,.csv,.txt,application/pdf,text/csv" multiple class="hidden">
         <details style="margin-top:12px"><summary>Opções (PDF com senha, pessoa padrão)</summary>
           <label class="field" style="margin-top:8px"><span>Senha do PDF (se o banco protege o arquivo)</span><input type="password" id="pdfpw" autocomplete="off"></label>
           <label class="field"><span>Pessoa quando o titular não for reconhecido</span><select id="uowner">${state.users.map((u) => `<option value="${u.id}" ${u.id === state.user.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></label>
@@ -2030,7 +2030,8 @@ function viewEnviar(view) {
           <div class="row" style="cursor:default"><div class="ic">🏦</div><div class="main"><div class="title">Sicredi</div><div class="meta">Extrato da conta corrente</div></div></div>
           <div class="row" style="cursor:default"><div class="ic">💳</div><div class="main"><div class="title">Banco do Brasil</div><div class="meta">Fatura do cartão Ourocard</div></div></div>
           <div class="row" style="cursor:default"><div class="ic">📑</div><div class="main"><div class="title">Qualquer banco em OFX</div><div class="meta">Exportação "Money/OFX" do internet banking</div></div></div>
-          <div class="row" style="cursor:default"><div class="ic">❔</div><div class="main"><div class="title">Outros PDFs</div><div class="meta">Leitura genérica (data, descrição, valor), marcada para conferir</div></div></div>
+          <div class="row" style="cursor:default"><div class="ic">📊</div><div class="main"><div class="title">CSV</div><div class="meta">Nubank (cartão e conta) e Inter prontos; qualquer outro CSV com mapeamento de colunas</div></div></div>
+          <div class="row" style="cursor:default"><div class="ic">🧩</div><div class="main"><div class="title">Outros bancos</div><div class="meta">Sem leitor? Crie um com IA (ou mapeie as colunas) e ele é reaproveitado nas próximas vezes. Ou use a leitura genérica.</div></div></div>
         </div>
         <p class="muted small">Cada arquivo é conferido contra o total impresso pelo banco. Arquivo repetido é recusado e lançamentos já importados por outro arquivo não duplicam.</p>
       </section>
@@ -2055,6 +2056,7 @@ function viewEnviar(view) {
     try {
       const { results } = await api('/imports', { method: 'POST', body: fd });
       box.innerHTML = results.map(resultCard).join('');
+      bindPendingButtons(box);
       await loadMeta();
       const firstOk = results.find((r) => r.ok && r.dueDate);
       if (firstOk) state.month = firstOk.dueDate.slice(0, 7);
@@ -2072,6 +2074,13 @@ function checkPill(stated, computed) {
 }
 
 function resultCard(r) {
+  if (!r.ok && r.code === 'NO_PARSER')
+    return `<div class="result warnres" data-result="${esc(r.pending_id)}"><div class="title">${esc(r.filename)}</div>
+      <div class="small">Nenhum leitor conhece este ${r.format === 'csv' ? 'CSV' : 'PDF'} ainda. Crie um: ele fica salvo e é usado sozinho nos próximos arquivos iguais.</div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn sm" data-pending="${esc(r.pending_id)}" data-mode="ai">🤖 Criar leitor com IA</button>
+        ${r.format === 'csv' ? `<button class="btn ghost sm" data-pending="${esc(r.pending_id)}" data-mode="map">🧩 Mapear colunas</button>` : `<button class="btn ghost sm" data-pending="${esc(r.pending_id)}" data-mode="generic">Leitura genérica</button>`}
+      </div></div>`;
   if (!r.ok) return `<div class="result err"><div class="title">${esc(r.filename)}</div><div class="small" style="color:var(--danger)">${esc(r.error)}</div></div>`;
   return `<div class="result">
     <div class="title">${esc(r.filename)}</div>
@@ -2080,6 +2089,158 @@ function resultCard(r) {
     ${r.statedTotal != null ? `<div class="small muted">Conferência (${esc(r.totalLabel)}): banco ${brl(r.statedTotal)} · lido ${brl(r.computedTotal)}</div>` : ''}
     ${r.warnings.map((w) => `<div class="small" style="color:var(--warn-text)">⚠ ${esc(w)}</div>`).join('')}
   </div>`;
+}
+
+// ---------- leitores de documentos (arquivo sem leitor) ----------
+function bindPendingButtons(box) {
+  $$('[data-pending]', box).forEach((b) =>
+    b.addEventListener('click', () =>
+      openExtractor(b.dataset.pending, b.dataset.mode, (r) => {
+        const card = $(`[data-result="${CSS.escape(b.dataset.pending)}"]`, box);
+        if (card) card.outerHTML = resultCard(r);
+        loadMeta();
+      })
+    )
+  );
+}
+
+const DATE_FORMATS = ['DD/MM/YYYY', 'DD/MM/YY', 'DD/MM', 'YYYY-MM-DD', 'DD-MM-YYYY', 'DD.MM.YYYY', 'DD MMM', 'DD MMM YYYY'];
+
+function previewHtml(p) {
+  if (!p) return '';
+  return `<h4 class="docsh">Prévia: ${p.count} lançamentos ${checkPill(p.statedTotal, p.computedTotal)}</h4>
+    <div class="muted small">${esc(p.account || '')}${p.dueDate ? ` · vence ${fmtDate(p.dueDate)}` : ''}${p.periodStart ? ` · ${fmtDate(p.periodStart)} a ${fmtDate(p.periodEnd)}` : ''}${p.statedTotal != null ? ` · banco ${brl(p.statedTotal)} · lido ${brl(p.computedTotal)}` : ` · total lido ${brl(p.computedTotal)}`}</div>
+    ${p.warnings.map((w) => `<div class="small" style="color:var(--warn-text)">⚠ ${esc(w)}</div>`).join('')}
+    <div class="table-wrap"><table class="simple num entries"><thead><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th></tr></thead><tbody>
+    ${p.sample.map((t) => `<tr><td>${fmtDate(t.date)}</td><td class="desc">${esc(t.description)}${t.installment ? ` <span class="pill">${esc(t.installment)}</span>` : ''}${t.payment ? ' <span class="pill">pagamento</span>' : ''}</td><td class="r">${brl(t.amount)}</td></tr>`).join('')}
+    </tbody></table></div>${p.count > p.sample.length ? `<p class="muted small">e mais ${p.count - p.sample.length}…</p>` : ''}`;
+}
+
+async function openExtractor(pendingId, mode, done) {
+  if (mode === 'generic') {
+    try {
+      done(await api(`/imports/pending/${pendingId}/import`, { method: 'POST', body: { generic: true } }));
+      toast('Importado com a leitura genérica: confira os lançamentos');
+    } catch (e) {
+      toast(e.message);
+    }
+    return;
+  }
+  let info;
+  try {
+    info = await api(`/imports/pending/${pendingId}`);
+  } catch (e) {
+    return toast(e.message);
+  }
+  let template = null;
+  let source = 'manual';
+  const { el, close } = sheet(`<h3>Novo leitor · ${esc(info.filename)}</h3><div id="exBody"></div>`);
+  el.classList.add('wide');
+  const body = $('#exBody', el);
+
+  const finishBox = () => `
+    <div class="filters" style="margin-top:12px"><input type="text" id="exName" value="${esc(template?.name || '')}" placeholder="Nome do leitor (ex.: Santander · Fatura)">
+      ${template?.doc_kind === 'cartao' ? '<input type="date" id="exDue" aria-label="Vencimento da fatura" title="Vencimento da fatura (se não foi encontrado)">' : ''}</div>
+    <label class="check"><input type="checkbox" id="exSave" checked><span>Salvar este leitor para os próximos arquivos iguais</span></label>
+    <div class="actions"><button class="btn" id="exImport">Importar</button><button class="btn ghost" id="exClose">Cancelar</button></div>`;
+  const bindFinish = () => {
+    $('#exClose', el).addEventListener('click', close);
+    $('#exImport', el).addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await api(`/imports/pending/${pendingId}/import`, {
+          method: 'POST',
+          body: { template, save: $('#exSave', el).checked, name: $('#exName', el).value, source, due_date: $('#exDue', el)?.value || null },
+        });
+        toast(`${r.inserted} lançamentos importados${r.extractor_id ? ' · leitor salvo' : ''}`);
+        close();
+        done(r);
+      } catch (err) {
+        toast(err.message);
+        e.currentTarget.disabled = false;
+      }
+    });
+  };
+
+  if (mode === 'ai') {
+    if (!info.ai) {
+      body.innerHTML = `<p>A IA está desligada neste servidor (ou é um webhook). ${info.format === 'csv' ? 'Use "Mapear colunas".' : 'Use a leitura genérica ou peça a um administrador para ligar a IA.'}</p>`;
+      return;
+    }
+    body.innerHTML = `<p class="small" style="margin-top:0">A IA recebe uma <b>amostra</b> do texto do arquivo (começo e um trecho do meio) com CPF/CNPJ, números de conta e de cartão, e-mails e telefones trocados por zeros. Nomes e valores podem aparecer. Ela devolve só um <b>modelo de leitura</b> (não é código), que o app testa no arquivo inteiro antes de você confirmar.</p>
+      <div class="actions"><button class="btn" id="exAi">Enviar amostra e criar leitor</button><button class="btn ghost" id="exCancel">Cancelar</button></div><div id="exOut"></div>`;
+    $('#exCancel', el).addEventListener('click', close);
+    $('#exAi', el).addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Criando leitor…';
+      try {
+        const r = await api(`/imports/pending/${pendingId}/ai`, { method: 'POST' });
+        template = r.template;
+        source = 'ia';
+        body.innerHTML = `<p class="small" style="margin-top:0">Leitor sugerido: <b>${esc(template.name)}</b> · ${esc(template.bank)} · ${template.doc_kind === 'cartao' ? 'fatura de cartão' : 'extrato de conta'}</p>
+          ${previewHtml(r.preview)}${finishBox()}`;
+        bindFinish();
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Tentar de novo';
+      }
+    });
+    return;
+  }
+
+  // mapear colunas (CSV)
+  const sug = info.suggestion;
+  const header = info.rows[sug.header_row] || info.rows[0] || [];
+  const opt = (v, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v || '—')}</option>`;
+  const colSel = (name, cur) => `<select name="${name}">${['', ...header].map((h) => opt(h, cur || '')).join('')}</select>`;
+  body.innerHTML = `
+    <p class="muted small" style="margin-top:0">Primeiras linhas do arquivo:</p>
+    <div class="table-wrap"><table class="simple entries small">${info.rows.slice(0, 6).map((r, i) => `<tr${i === sug.header_row ? ' class="group"' : ''}>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table></div>
+    <form id="exMap" class="insform" style="margin-top:10px">
+      <label class="field"><span>Banco</span><input type="text" name="bank" value="${esc(sug.bank)}" placeholder="Ex.: C6 Bank" required></label>
+      <label class="field"><span>Tipo</span><select name="doc_kind">${opt('conta', sug.doc_kind).replace('>conta<', '>Extrato de conta<')}${opt('cartao', sug.doc_kind).replace('>cartao<', '>Fatura de cartão<')}</select></label>
+      <label class="field"><span>Data</span>${colSel('date', sug.columns.date)}</label>
+      <label class="field"><span>Formato da data</span><select name="date_format">${DATE_FORMATS.map((f) => opt(f, sug.date_format)).join('')}</select></label>
+      <label class="field"><span>Descrição</span>${colSel('desc1', sug.columns.description[0])}</label>
+      <label class="field"><span>Descrição (2ª coluna, opcional)</span>${colSel('desc2', sug.columns.description[1])}</label>
+      <label class="field"><span>Valor</span>${colSel('amount', sug.columns.amount)}</label>
+      <label class="field"><span>ou Débito</span>${colSel('debit', sug.columns.debit)}</label>
+      <label class="field"><span>e Crédito</span>${colSel('credit', sug.columns.credit)}</label>
+      <label class="field"><span>Decimal</span><select name="decimal">${opt(',', sug.decimal).replace('>,<', '>vírgula (1.234,56)<')}${opt('.', sug.decimal).replace('>.<', '>ponto (1,234.56)<')}</select></label>
+      <label class="field"><span>Compras/saídas aparecem</span><select name="sign"><option value="as_is" ${sug.sign === 'as_is' ? 'selected' : ''}>negativas (-12,50)</option><option value="invert" ${sug.sign === 'invert' ? 'selected' : ''}>positivas (12,50)</option></select></label>
+      <label class="field"><span>Texto do pagamento da fatura (opcional)</span><input type="text" name="payment" value="${esc((sug.payment_patterns || []).join(', '))}" placeholder="Ex.: Pagamento recebido"></label>
+      <div class="actions"><button class="btn ghost" type="submit">Pré-visualizar</button></div>
+    </form><div id="exOut"></div>`;
+  $('#exMap', el).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    const cols = [f.date, f.desc1, f.amount || f.debit, f.credit].filter(Boolean);
+    const t = {
+      kind: 'csv',
+      name: `${f.bank} · ${f.doc_kind === 'cartao' ? 'Fatura' : 'Extrato'} (CSV)`,
+      bank: f.bank,
+      account: `${f.bank} ${f.doc_kind === 'cartao' ? 'Cartão' : 'Conta'}`,
+      doc_kind: f.doc_kind,
+      detect: { header: [...new Set(cols)] },
+      header_row: sug.header_row,
+      delimiter: info.delimiter,
+      columns: { date: f.date || null, description: [f.desc1, f.desc2].filter(Boolean), amount: f.amount || null, debit: f.amount ? null : f.debit || null, credit: f.amount ? null : f.credit || null },
+      date_format: f.date_format,
+      decimal: f.decimal,
+      sign: f.sign,
+      payment_patterns: f.payment ? f.payment.split(',').map((x) => x.trim()).filter(Boolean) : [],
+    };
+    try {
+      const r = await api(`/imports/pending/${pendingId}/preview`, { method: 'POST', body: { template: t } });
+      template = r.template;
+      $('#exOut', el).innerHTML = previewHtml(r.preview) + finishBox();
+      bindFinish();
+    } catch (err) {
+      $('#exOut', el).innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`;
+    }
+  });
 }
 
 // ---------- arquivos ----------
@@ -2226,6 +2387,11 @@ async function viewAjustes(view) {
           <div class="list" id="taxList"><div class="muted small">Carregando…</div></div>
         </section>
         <section class="card">
+          <h2>Leitores de documentos</h2>
+          <p class="muted small" style="margin-top:0">Modelos para ler formatos sem leitor próprio (CSV ou PDF de outros bancos), criados por você ou pela IA ao enviar um arquivo novo. São reaproveitados nos próximos arquivos iguais.</p>
+          <div class="list" id="exList"><div class="muted small">Carregando…</div></div>
+        </section>
+        <section class="card">
           <h2>Cartões</h2>
           <p class="muted small" style="margin-top:0">As faturas não dizem se a compra foi online ou presencial. <b>Virtual</b>: tudo conta como online. <b>Físico</b>: presencial, menos lojas claramente online (Uber, Shopee…). <b>Misto</b>: decide pelo nome da loja.</p>
           <div class="list" id="cardList"><div class="muted small">Carregando…</div></div>
@@ -2314,6 +2480,28 @@ async function viewAjustes(view) {
       }
     })
   );
+  api('/extractors').then((ex) => {
+    const box = $('#exList', view);
+    if (!box) return;
+    const SRC = { ia: '🤖 IA', manual: '🧩 manual' };
+    box.innerHTML =
+      ex.saved
+        .map(
+          (x) => `<div class="row catrow" style="cursor:default"><div class="ic">${x.kind === 'csv' ? '📊' : '📄'}</div><div class="main"><div class="title">${esc(x.name)}${x.enabled ? '' : ' <span class="pill">desativado</span>'}</div>
+            <div class="sub muted small">${SRC[x.source] || esc(x.source)} · ${x.doc_kind === 'cartao' ? 'fatura' : 'extrato'} · ${x.kind.toUpperCase() === 'TEXT' ? 'PDF' : 'CSV'} · usado ${x.uses}x</div></div>
+            <div class="catsels"><button class="btn ghost sm" data-extog="${x.id}" data-on="${x.enabled ? 0 : 1}">${x.enabled ? 'Desativar' : 'Ativar'}</button><button class="btn ghost sm" data-exdel="${x.id}" aria-label="Excluir">✕</button></div></div>`
+        )
+        .join('') +
+      `<p class="muted small" style="margin:8px 0 0">Prontos: ${ex.presets.map((p) => esc(p.name)).join(' · ')}.${ex.saved.length ? '' : ' Nenhum leitor criado ainda.'}</p>`;
+    $$('[data-extog]', box).forEach((b) => b.addEventListener('click', async () => (await api(`/extractors/${b.dataset.extog}`, { method: 'PATCH', body: { enabled: b.dataset.on === '1' } }), again())));
+    $$('[data-exdel]', box).forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('Excluir este leitor? Os arquivos já importados não mudam.')) return;
+        await api(`/extractors/${b.dataset.exdel}`, { method: 'DELETE' });
+        again();
+      })
+    );
+  });
   api('/tax-rates').then((tr) => {
     const box = $('#taxList', view);
     if (!box) return;

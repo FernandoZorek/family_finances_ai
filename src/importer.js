@@ -3,11 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
 const { parseStatement } = require('./parsers');
+const { markUsed } = require('./extractors');
 const { loadContext, categorize, memberOf, normalize, reconcileCardPayments } = require('./categorize');
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
-async function importFile({ buffer, filename, userId, password, ownerId }) {
+// template/generic/dueDate: formato sem leitor próprio (modelo confirmado na tela, leitura genérica, vencimento da fatura CSV)
+async function importFile({ buffer, filename, userId, password, ownerId, template, generic, dueDate }) {
   const fileHash = sha(buffer);
   const existing = db.prepare('SELECT id, filename, created_at FROM imports WHERE sha256 = ?').get(fileHash);
   if (existing) {
@@ -16,7 +18,7 @@ async function importFile({ buffer, filename, userId, password, ownerId }) {
     throw err;
   }
 
-  const st = await parseStatement(buffer, filename, { password });
+  const st = await parseStatement(buffer, filename, { password, template, generic, dueDate });
   if (!st.transactions.length) throw new Error('Nenhum lançamento encontrado no arquivo.');
 
   const ctx = loadContext();
@@ -98,6 +100,7 @@ async function importFile({ buffer, filename, userId, password, ownerId }) {
   })();
 
   const reconciled = reconcileCardPayments();
+  markUsed(st.extractorId);
   return {
     id: result.importId,
     filename,

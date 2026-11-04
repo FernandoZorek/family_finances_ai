@@ -5,6 +5,7 @@ const fs = require('fs');
 const { db } = require('../db');
 const { importFile } = require('../importer');
 const { afterImport } = require('../ai');
+const pending = require('../pending');
 
 const router = express.Router();
 
@@ -31,8 +32,14 @@ router.post('/imports', upload.array('files'), async (req, res) => {
         })),
       });
     } catch (e) {
-      results.push({ ok: false, filename, error: e.message || 'Falha ao ler o arquivo.', code: e.code });
-      if (!['DUPLICATE', 'PDF_PASSWORD'].includes(e.code)) console.error('[import]', filename, e);
+      const out = { ok: false, filename, error: e.message || 'Falha ao ler o arquivo.', code: e.code };
+      // formato sem leitor: guarda (na memória, 1 h) para a pessoa escolher como ler
+      if (e.code === 'NO_PARSER') {
+        out.format = e.format;
+        out.pending_id = pending.put({ buffer: f.buffer, filename, format: e.format, password: req.body.password || undefined, ownerId: req.body.owner_id ? Number(req.body.owner_id) : null, userId: req.user.id });
+      }
+      results.push(out);
+      if (!['DUPLICATE', 'PDF_PASSWORD', 'NO_PARSER'].includes(e.code)) console.error('[import]', filename, e);
     }
   }
   // IA (se ligada e no automático): analisa as lojas novas sem categoria, em segundo plano

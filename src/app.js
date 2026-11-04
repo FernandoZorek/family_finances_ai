@@ -54,6 +54,7 @@ function createApp() {
   api.use('/admin', require('./routes/admin'));
   api.use(require('./routes/settings'));
   api.use(require('./routes/imports'));
+  api.use(require('./routes/extractors'));
   api.use(require('./routes/transactions').router);
   api.use(require('./routes/dashboard'));
   api.use(require('./routes/commitments'));

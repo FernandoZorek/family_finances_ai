@@ -20,6 +20,8 @@ You should get an answer within a few days.
 - **Headers:** strict Content-Security-Policy (`script-src 'self'`, no inline scripts), `frame-ancestors 'none'`, `no-store` cache on all API responses.
 - **Uploads:** only PDF/OFX (checked by content), size and count limits, stored with hashed names and `0600` permissions; PDF.js runs with `isEvalSupported: false`.
 - **Output:** all data rendered in the UI is HTML-escaped; CSV export neutralizes spreadsheet formulas.
+- **Document readers:** AI or user-made readers are declarative JSON, never executed as code; regexes are size-limited and nested
+  quantifiers/backreferences are rejected (ReDoS); files waiting for a reader stay in memory for at most 1 hour, only for the uploader.
 
 ## Your responsibilities when self-hosting
 

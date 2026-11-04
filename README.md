@@ -8,7 +8,9 @@ money went, what is coming next month and how each person and income source cont
 
 ## Features
 
-- **Import** PDF/OFX statements and bills; each import is checked against the total printed by the bank. Duplicates are skipped.
+- **Import** PDF, OFX and CSV statements and bills; each import is checked against the total printed by the bank. Duplicates are skipped.
+- **New banks without code:** a file no reader knows can get a reader built by column mapping (CSV) or by AI (CSV and PDF).
+  Readers are declarative JSON models (never code), validated and previewed before saving, and reused for the next files.
 - **Automatic categories** with editable rules (per text, per account), categories and sub-categories, "apply to similar ones".
 - **Card bills reconciliation:** bill payments are neutral when the bill was imported; missing documents become alerts.
 - **Payslips (holerite):** gross salary plus each payroll deduction, with the net deposit reconciled.
@@ -30,8 +32,9 @@ money went, what is coming next month and how each person and income source cont
 - **Multi-user:** users from environment variables plus an admin panel; temporary passwords must be changed on first login.
 
 Supported documents: Bradesco (account and card), Itaú (account and card), Mercado Pago (account and card), Sicredi (account),
-Banco do Brasil (Ourocard), business account statements from bank 301, SCI-style payslips, OFX from any bank, and a generic PDF fallback.
-Adding a bank is a single file: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Banco do Brasil (Ourocard), business account statements from bank 301, SCI-style payslips, OFX from any bank, CSV from Nubank
+(card and account) and Inter (account), any other CSV by column mapping, and a generic PDF fallback.
+Anything else: create a reader in the app (mapping or AI), or add a parser file — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quick start
 
@@ -94,11 +97,15 @@ Keep that file private — it reflects where you shop.
 
 ### AI (optional, off by default)
 
-Set `FF_AI_PROVIDER` to enable two features:
+Set `FF_AI_PROVIDER` to enable three features:
 
 - **AI rules** (Ajustes › Regras): merchants that ended up in "Outros"/"Outras receitas" get a category from the model;
   a rule is created when confidence ≥ `FF_AI_MIN_CONFIDENCE` and tagged **IA** for review. Run it with a button or turn on
   *analyze automatically after each upload*.
+- **Document readers** (when uploading a file no reader knows): the model receives a **masked sample** of the file (CPF/CNPJ,
+  account and card numbers, e-mails and phones replaced by zeros) and returns a reading model — detection words, a line regex or
+  CSV column mapping, date/amount formats and sign. The app validates it (no nested-quantifier regexes, size limits), runs it on
+  the whole file and shows a preview; you confirm before importing and saving. Readers are listed in **Ajustes › Leitores de documentos**.
 - **Insights** (menu **Insights**): analysis of a period with optional category/document filter, savings goal and guidance;
   analyses can be saved. The **AI usage** panel on the same page shows calls, tokens and estimated cost by action, month and total.
 
@@ -117,7 +124,7 @@ The webhook receives `POST` JSON with `type: "rules"` (`categories`, `items: [{k
 `{ summary, highlights, savings: [{ category, monthly_target, reason, actions }], goal_feedback, warnings }`.
 It may add `usage: { input_tokens, output_tokens, cost_usd }` to feed the usage report.
 
-**Privacy.** AI rules send only merchant names without digits — no amounts, dates, accounts or documents, and never PIX/transfers
+**Privacy.** Document readers send a masked sample of the file (names and amounts may appear). AI rules send only merchant names without digits — no amounts, dates, accounts or documents, and never PIX/transfers
 (they contain people's names). Insights send monthly totals per category, the top merchants of each category (no PIX/transfers),
 your goal and your guidance text. Costs shown are estimates from token counts; check your provider's billing.
 
