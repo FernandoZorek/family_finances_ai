@@ -120,6 +120,8 @@ if (!cols('users').includes('is_admin')) {
   // instalação existente: o primeiro usuário vira administrador
   db.exec('UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users)');
 }
+// idioma da interface escolhido pelo usuário (pt-BR | en | es)
+if (!cols('users').includes('locale')) db.exec('ALTER TABLE users ADD COLUMN locale TEXT');
 if (!cols('categories').includes('key')) db.exec('ALTER TABLE categories ADD COLUMN key TEXT');
 // essencial | conforto | NULL (outras): filtro de despesas do painel
 // carga de imposto embutida no preço (fração; NULL = padrão do app). Estimativa para o card de impostos

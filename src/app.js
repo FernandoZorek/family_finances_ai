@@ -8,6 +8,7 @@ const config = require('./config');
 const auth = require('./auth');
 
 const ROOT = path.join(__dirname, '..');
+const { localeOf } = require('./i18n');
 
 function createApp() {
   const app = express();
@@ -35,6 +36,19 @@ function createApp() {
   );
 
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  // Dicionário do idioma (cookie fin_locale ou idioma do navegador), carregado antes do app.js
+  const dicts = {};
+  const dictOf = (loc) => {
+    if (loc === 'pt-BR') return {};
+    if (!dicts[loc]) dicts[loc] = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'i18n', `${loc}.json`), 'utf8'));
+    return dicts[loc];
+  };
+  app.get('/i18n.js', (req, res) => {
+    const loc = localeOf(req);
+    res.set({ 'Cache-Control': 'private, no-cache', Vary: 'Cookie, Accept-Language' }).type('application/javascript');
+    res.send(`window.FF_I18N = ${JSON.stringify({ locale: loc, dict: dictOf(loc) }).replace(/</g, '\\u003c')};`);
+  });
 
   const api = express.Router();
   api.use((req, res, next) => {

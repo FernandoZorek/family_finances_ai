@@ -8,6 +8,7 @@ const ai = require('./ai');
 const { addMonths, monthsBetween, ym } = require('./lib/dates');
 const { sameKey, similarKey } = require('./categorize');
 const { childrenMap } = require('./budgets');
+const { LOCALES, LANGUAGE_NAME } = require('./i18n');
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const SKIP_MERCHANT = /\b(PIX|TED|DOC|TRANSF|TRANSFERENCIA|DEPOSITO|SAQUE|PAGAMENTO DE FATURA|DESCONTO EM FOLHA)\b/;
@@ -179,7 +180,7 @@ function prompt(data, p) {
     ? `- Há um objetivo: juntar R$ ${data.goal.amount} até ${data.goal.until} (${data.goal.months_left} meses). Monte os cortes para chegar o mais perto possível
   do objetivo sem ser irreal, e explique em "goal_feedback" se é viável e o que mais seria preciso.`
     : '- "goal_feedback": texto vazio (não há objetivo).';
-  return `Você é um consultor de finanças pessoais para uma família brasileira. Analise os dados (valores em R$, por mês) e responda em português do Brasil, direto e concreto.
+  return `Você é um consultor de finanças pessoais para uma família brasileira. Analise os dados (valores em R$, por mês) e responda em ${LANGUAGE_NAME[p.locale] || LANGUAGE_NAME['pt-BR']}, direto e concreto (todos os textos do JSON nesse idioma; "category" continua exatamente como na lista).
 ${focus}
 - "summary": 3 a 5 frases sobre o período (renda x gasto, tendência, o que pesou mais).
 - "highlights": 3 a 6 observações com números (categoria que mais cresceu, mês fora da curva, loja que concentra o gasto).
@@ -267,7 +268,7 @@ const row = (r) =>
 async function generate(body, user) {
   if (!ai.enabled()) throw fail('IA desligada (defina FF_AI_PROVIDER).');
   const owner = body.owner && body.owner !== 'all' ? Number(body.owner) : null;
-  const p = normalizeParams(body, owner);
+  const p = { ...normalizeParams(body, owner), locale: LOCALES.includes(user?.locale) ? user.locale : 'pt-BR' };
   if (Date.now() - lastAt < MIN_INTERVAL) throw fail('Aguarde um minuto antes de gerar de novo.', 429);
   lastAt = Date.now();
   const data = buildData(p);

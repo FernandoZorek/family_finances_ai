@@ -62,6 +62,7 @@ const publicUser = (u) => ({
   color: u.color,
   is_admin: Boolean(u.is_admin),
   must_change_password: Boolean(u.must_change_password),
+  locale: u.locale || null,
 });
 
 function currentUser(req) {

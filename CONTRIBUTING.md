@@ -37,3 +37,11 @@ spread over the page, etc.):
 - `server.js` starts the app; `src/app.js` builds the Express app (security headers, routes, static files).
 - `src/routes/*` HTTP routes; `src/*.js` domain logic (categorization, projections, alerts, filters, taxes).
 - `public/` the single-page app (vanilla JS, no build step). Always escape interpolated values with `esc()`.
+
+## Translations (i18n)
+
+The UI is available in Portuguese (source), English and Spanish. Strings in `public/app.js` are wrapped with `__()`,
+using the Portuguese text as the key (gettext style); variables use placeholders: `__('{0} lançamentos', { 0: n })`.
+Translations live in `public/i18n/en.json` and `public/i18n/es.json`. `npm test` fails if a wrapped string has no
+translation or if placeholders differ. To add a language, create `public/i18n/<code>.json`, add it to `LOCALES` in
+`public/app.js` and `src/i18n.js`. User data (category names, transaction descriptions, document text) is not translated.

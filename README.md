@@ -4,7 +4,8 @@ Self-hosted, mobile-first dashboard for a household's money. Upload the PDF/OFX 
 already get from your banks, and Family Finances reads, validates and categorizes every transaction, then shows where the
 money went, what is coming next month and how each person and income source contributes.
 
-> 🇧🇷 The interface is in Brazilian Portuguese and the parsers target Brazilian banks. [Leia em português](#português).
+> 🌐 Interface in **Portuguese, English and Spanish** (per user, auto-detected from the browser). The parsers target Brazilian banks.
+> [Leia em português](#português).
 
 ## Features
 
@@ -29,6 +30,8 @@ money went, what is coming next month and how each person and income source cont
 - **AI rules (optional):** merchants left in "Outros" get a category rule from the model, by button or after every upload.
 - **AI usage:** every AI call is logged with tokens and estimated cost — by action, by month and total.
 - **Rules export/import:** move your rules and categories to another install as a JSON file.
+- **Languages:** Portuguese (Brazil), English and Spanish; chosen on the login page or in Settings and saved per user.
+  AI answers (Insights) follow the user's language. Your data (category names, descriptions) is kept as is.
 - **Multi-user:** users from environment variables plus an admin panel; temporary passwords must be changed on first login.
 
 Supported documents: Bradesco (account and card), Itaú (account and card), Mercado Pago (account and card), Sicredi (account),
@@ -177,5 +180,7 @@ categorias, rendas, cartões, recorrentes, usuários).
 **IA (opcional):** defina `FF_AI_PROVIDER` (Anthropic, qualquer API compatível com OpenAI, como Gemini ou um Ollama local, ou
 um webhook seu). Regras por IA mandam só o nome da loja; os Insights mandam totais por categoria, as maiores lojas, o objetivo
 e o direcionamento. Nunca vão PIX nem nomes de pessoas.
+
+**Idiomas:** português, inglês e espanhol, escolhidos na tela de login ou em Ajustes e salvos por usuário.
 
 Use sempre atrás de HTTPS e faça backup da pasta `DATA_DIR`. Os impostos embutidos nos preços e o custo da IA são **estimativas**.

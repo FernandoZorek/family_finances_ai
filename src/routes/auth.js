@@ -56,6 +56,14 @@ me.post('/me/password', async (req, res, next) => {
   }
 });
 
+// Idioma da interface (fica no usuário: vale em todos os aparelhos)
+me.put('/me/locale', (req, res) => {
+  const locale = ['pt-BR', 'en', 'es'].includes(req.body?.locale) ? req.body.locale : null;
+  if (!locale) return res.status(400).json({ error: 'Idioma inválido.' });
+  db.prepare('UPDATE users SET locale = ? WHERE id = ?').run(locale, req.user.id);
+  res.json({ ok: true });
+});
+
 // Nome e apelidos nos extratos: cada um edita o seu; administrador edita qualquer um
 me.patch('/users/:id', (req, res) => {
   const id = Number(req.params.id);
