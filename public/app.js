@@ -131,6 +131,72 @@ function openCategory(c, done) {
   });
 }
 
+// Exportar/importar regras e IA opcional para criar regras de lojas sem categoria
+function bindRulesIO(view, again) {
+  $('#rulesFile', view)?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (!confirm(`Importar ${data.rules?.length ?? 0} regras e ${data.categories?.length ?? 0} categorias de "${file.name}"? Nada é apagado.`)) return;
+      const r = await api('/rules/import', { method: 'POST', body: { data } });
+      state.categories = await api('/categories');
+      toast(`${r.rules_created} regras novas, ${r.rules_updated} atualizadas, ${r.categories_created} categorias · ${r.changed} lançamentos recategorizados`);
+      again();
+    } catch (err) {
+      toast(err instanceof SyntaxError ? 'Arquivo não é um JSON válido.' : err.message);
+    } finally {
+      e.target.value = '';
+    }
+  });
+  const box = $('#aiBox', view);
+  api('/ai/status')
+    .then((st) => {
+      const when = st.last_run ? `${fmtDate(st.last_run.at.slice(0, 10))} ${st.last_run.at.slice(11, 16)}` : '';
+      const last = st.last_run
+        ? st.last_run.error
+          ? `Última análise (${when}): erro, ${esc(st.last_run.error)}`
+          : `Última análise (${when}, ${esc(st.last_run.reason || '')}): ${st.last_run.sent} lojas enviadas, ${st.last_run.created} regras criadas, ${st.last_run.changed || 0} lançamentos recategorizados.`
+        : 'Ainda não rodou.';
+      box.innerHTML = st.enabled
+        ? `<div class="aibox"><h4 class="docsh" style="margin-top:0">🤖 Regras automáticas por IA <span class="muted small">${esc(st.provider)}${st.model ? ` · ${esc(st.model)}` : ''}</span></h4>
+            <p class="muted small" style="margin:0 0 8px">Lojas que caíram em "Outros" ou "Outras receitas" ganham uma regra quando a IA tem confiança de ${Math.round(st.min_confidence * 100)}% ou mais. Só o nome da loja é enviado (sem valores, datas, contas ou PIX). As regras criadas aparecem em "Criadas pela IA" para você revisar.</p>
+            ${
+              state.user.is_admin
+                ? `<label class="check"><input type="checkbox" id="aiAuto" ${st.auto ? 'checked' : ''}><span>Analisar automaticamente a cada arquivo enviado</span></label>
+                   <button class="btn sm" id="aiRun" ${st.pending ? '' : 'disabled'}>${st.pending ? `Analisar agora (${st.pending} ${st.pending === 1 ? 'loja' : 'lojas'} sem categoria)` : 'Nada para analisar'}</button>`
+                : ''
+            }
+            <p class="muted small" id="aiLast" style="margin:8px 0 0">${last}</p></div>`
+        : `<p class="muted small" style="margin:10px 0 0">🤖 Regras automáticas por IA: desligado. Para ligar, defina <code>FF_AI_PROVIDER</code> no servidor (veja o README).</p>`;
+      $('#aiAuto', box)?.addEventListener('change', async (e) => {
+        try {
+          await api('/ai/auto', { method: 'PUT', body: { auto: e.target.checked } });
+          toast(e.target.checked ? 'Análise automática ligada' : 'Análise automática desligada');
+        } catch (err) {
+          toast(err.message);
+          e.target.checked = !e.target.checked;
+        }
+      });
+      $('#aiRun', box)?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = 'Analisando…';
+        try {
+          const r = await api('/ai/run', { method: 'POST' });
+          toast(r.created ? `${r.created} regras criadas · ${r.changed} lançamentos recategorizados` : 'Nenhuma regra nova com confiança suficiente');
+          state.categories = await api('/categories');
+          again();
+        } catch (err) {
+          toast(err.message);
+          btn.disabled = false;
+          btn.textContent = 'Analisar agora';
+        }
+      });
+    })
+    .catch(() => (box.innerHTML = ''));
+}
+
 // Administração de usuários (só admin)
 function showTempPassword(username, pw) {
   const { el, close } = sheet(`
@@ -1784,7 +1850,8 @@ async function viewArquivos(view) {
 async function viewAjustes(view) {
   const [rules, commitments, suggestions] = await Promise.all([api('/rules'), api('/commitments'), api('/commitments/suggestions')]);
   const userRules = rules.filter((r) => r.source === 'usuario');
-  const defRules = rules.filter((r) => r.source !== 'usuario');
+  const aiRules = rules.filter((r) => r.source === 'ia');
+  const defRules = rules.filter((r) => r.source === 'padrao');
   const catOptions = state.categories.map((c) => `<option value="${c.id}">${esc(c.icon)} ${esc(c.name)}</option>`).join('');
   view.innerHTML = `
     <div class="grid two">
@@ -1797,8 +1864,15 @@ async function viewAjustes(view) {
           <button class="btn sm" type="submit">Adicionar</button>
         </form>
         <div class="list">${userRules.map(ruleRow).join('') || '<p class="muted small">Você ainda não criou regras. Dica: ao corrigir a categoria de um lançamento, marque "aplicar para todos".</p>'}</div>
+        ${aiRules.length ? `<details><summary>Criadas pela IA (${aiRules.length}) <span class="pill">revise</span></summary><div class="list">${aiRules.map(ruleRow).join('')}</div></details>` : ''}
         <details><summary>Regras padrão (${defRules.length})</summary><div class="list">${defRules.map(ruleRow).join('')}</div></details>
-        <button class="btn ghost sm" id="reapply" style="margin-top:10px">Reaplicar regras em tudo</button>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn ghost sm" id="reapply">Reaplicar regras em tudo</button>
+          <a class="btn ghost sm" href="/api/rules/export" download>⬇️ Exportar regras</a>
+          ${state.user.is_admin ? '<label class="btn ghost sm" style="cursor:pointer">⬆️ Importar regras<input type="file" id="rulesFile" accept="application/json,.json" hidden></label>' : ''}
+        </div>
+        <p class="muted small" style="margin:6px 0 0">O arquivo exportado leva as regras e as categorias que elas usam. Importar junta com as atuais (cria o que falta, não apaga nada).</p>
+        <div id="aiBox"></div>
       </section>
       <div class="grid">
         <section class="card">
@@ -1922,6 +1996,7 @@ async function viewAjustes(view) {
     </div>`;
 
   const again = () => viewAjustes(view);
+  bindRulesIO(view, again);
   if (state.user.is_admin) bindAdminUsers(view, again);
   $('#addFin2', view).addEventListener('click', () => openCommitment({ first_month: new Date().toISOString().slice(0, 7), owner_id: state.user.id, recurring: 1 }, again));
   $$('[data-cid]', view).forEach((b) => b.addEventListener('click', () => openCommitment(commitments.find((c) => String(c.id) === b.dataset.cid), again)));
@@ -2064,7 +2139,7 @@ async function viewAjustes(view) {
 }
 
 function ruleRow(r) {
-  return `<div class="row" style="cursor:default"><div class="ic">${esc(r.icon)}</div><div class="main"><div class="title">${esc(r.pattern)}</div><div class="meta">${esc(r.category)}${r.account ? ` · só em ${esc(r.account)}` : ''}</div></div>
+  return `<div class="row" style="cursor:default"><div class="ic">${esc(r.icon)}</div><div class="main"><div class="title">${esc(r.pattern)}${r.source === 'ia' ? ' <span class="pill">IA</span>' : ''}</div><div class="meta">${esc(r.category)}${r.account ? ` · só em ${esc(r.account)}` : ''}</div></div>
     ${r.source === 'usuario' ? `<button class="btn ghost sm" data-rdel="${r.id}" aria-label="Remover regra">✕</button>` : `<button class="btn ghost sm" data-rdel="${r.id}" aria-label="Remover regra" title="Remover">✕</button>`}</div>`;
 }
 

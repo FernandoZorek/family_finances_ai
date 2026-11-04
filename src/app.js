@@ -41,7 +41,10 @@ function createApp() {
     res.set('Cache-Control', 'no-store'); // dados financeiros: nada em cache de navegador/proxy
     next();
   });
-  api.use(express.json({ limit: '200kb' }));
+  // JSON pequeno em tudo; só a importação de regras aceita arquivo maior
+  const jsonSmall = express.json({ limit: '200kb' });
+  const jsonRules = express.json({ limit: '2mb' });
+  api.use((req, res, next) => (req.path === '/rules/import' ? jsonRules : jsonSmall)(req, res, next));
   api.use(auth.requireFetchHeader);
   const { router: authRoutes, me } = require('./routes/auth');
   api.use(authRoutes);

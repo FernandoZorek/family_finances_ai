@@ -51,6 +51,16 @@ const config = {
   userPassword: (username) => env[`FF_PASSWORD_${username.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`] || '',
   // cidades onde a família mora: nome colado na compra de cartão ("PADARIA XCAMPINAS") indica compra presencial
   homeCities: list(env.FF_HOME_CITIES).map((c) => c.toUpperCase()),
+  // IA opcional para criar regras de lojas sem categoria (desligada sem FF_AI_PROVIDER)
+  ai: {
+    provider: ['anthropic', 'openai', 'webhook'].includes(env.FF_AI_PROVIDER) ? env.FF_AI_PROVIDER : '',
+    model: env.FF_AI_MODEL || (env.FF_AI_PROVIDER === 'anthropic' ? 'claude-opus-5-5' : ''),
+    apiKey: env.FF_AI_API_KEY || (env.FF_AI_PROVIDER === 'anthropic' ? env.ANTHROPIC_API_KEY || '' : ''),
+    baseUrl: env.FF_AI_BASE_URL || '',
+    // valor inicial; o admin liga/desliga em Ajustes (fica salvo no banco)
+    auto: env.FF_AI_AUTO === 'true',
+    minConfidence: Math.min(1, Math.max(0, Number(env.FF_AI_MIN_CONFIDENCE || 0.8))),
+  },
 };
 
 module.exports = config;

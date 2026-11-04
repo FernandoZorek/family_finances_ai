@@ -58,6 +58,20 @@ All configuration is done with environment variables (see [.env.example](.env.ex
 | `FF_ADMIN_USERNAME`, `FF_ADMIN_NAME`, `FF_ADMIN_PASSWORD` | – | Admin created on start if missing. Empty password = generated. |
 | `FF_USERS` | – | Other members, `user:Name,user2:Name 2`. Optional `FF_PASSWORD_<USER>`. |
 | `FF_HOME_CITIES` | – | Cities where you shop; a city glued to a card purchase marks it as in-person. |
+| `FF_AI_PROVIDER` | – | Optional AI rules: `anthropic`, `openai` (any OpenAI-compatible API, e.g. local Ollama) or `webhook`. See below. |
+| `FF_AI_MODEL`, `FF_AI_API_KEY`, `FF_AI_BASE_URL` | – | Model (Anthropic default `claude-opus-5-5`), key, base URL / webhook URL. |
+| `FF_AI_AUTO`, `FF_AI_MIN_CONFIDENCE` | `false`, `0.8` | Analyze after every upload (initial value; admins toggle it in the UI) and minimum confidence. |
+
+### Rules: export, import and optional AI
+
+- **Ajustes › Regras de categoria › Exportar regras** downloads a JSON with every rule and the categories it uses.
+  Admins can **import** it on another install: missing categories are created, existing rules updated, nothing deleted.
+  Keep that file private — it reflects where you shop.
+- **AI (optional, off by default):** set `FF_AI_PROVIDER`. Merchants that ended up in "Outros"/"Outras receitas" are sent
+  to the model, which picks a category; a rule is created when confidence ≥ `FF_AI_MIN_CONFIDENCE`. Rules are tagged **IA**
+  for review. Run it with a button or turn on *analyze automatically after each upload*.
+  **Privacy:** only the merchant name without digits is sent — no amounts, dates, accounts, documents, and never PIX/transfers
+  (they contain people's names). Use `openai` with a local Ollama (`FF_AI_BASE_URL=http://127.0.0.1:11434/v1`) to keep everything on your machine.
 
 Users from the environment are only **created** (never overwritten). Without any variable and with an empty database,
 an `admin` user is created. Generated passwords go to `DATA_DIR/initial-passwords.txt` (mode 600), never to logs.

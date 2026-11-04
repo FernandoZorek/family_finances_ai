@@ -4,6 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { db } = require('../db');
 const { importFile } = require('../importer');
+const { afterImport } = require('../ai');
 
 const router = express.Router();
 
@@ -34,6 +35,8 @@ router.post('/imports', upload.array('files'), async (req, res) => {
       if (!['DUPLICATE', 'PDF_PASSWORD'].includes(e.code)) console.error('[import]', filename, e);
     }
   }
+  // IA (se ligada e no automático): analisa as lojas novas sem categoria, em segundo plano
+  if (results.some((r) => r.ok)) afterImport();
   res.json({ results });
 });
 

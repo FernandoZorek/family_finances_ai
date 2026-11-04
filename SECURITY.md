@@ -7,6 +7,8 @@ You should get an answer within a few days.
 ## How the app protects your data
 
 - **Self-hosted, no third parties:** statements are parsed on your server; nothing is sent to external services (no CDN, no analytics).
+  The only exception is the **optional** AI rules feature (`FF_AI_PROVIDER`, off by default), which sends merchant names
+  without digits — never amounts, dates, accounts or PIX/transfer descriptions. It can run fully local (Ollama).
 - **Authentication:** bcrypt (cost 12) password hashes, random 256-bit session tokens stored only as SHA-256 hashes,
   `HttpOnly` + `SameSite=Strict` cookies (`Secure` over HTTPS), session revocation on password change/reset/disable.
 - **CSRF:** every state-changing request must carry the `X-Requested-With: fetch` header (not sendable cross-site without CORS) on top of `SameSite=Strict`.

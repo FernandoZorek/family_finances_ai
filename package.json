@@ -23,6 +23,7 @@
     "backup": "node scripts/backup.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "emoji-picker-element": "1.29.1",

@@ -1,5 +1,8 @@
 // Ajustes: categorias, regras, documentos/alertas, impostos embutidos, cartões e fontes de renda
 const express = require('express');
+const { requireAdmin } = require('../auth');
+const ai = require('../ai');
+const { exportRules, importRules } = require('../rules-io');
 const { db } = require('../db');
 const { computeAlerts, dismiss } = require('../alerts');
 const { recategorizeAll, reconcileCardPayments } = require('../categorize');
@@ -146,6 +149,34 @@ router.get('/rules', (req, res) => {
                 ORDER BY r.source = 'usuario' DESC, r.priority DESC, r.pattern`)
       .all()
   );
+});
+
+// Exportar / importar regras (JSON). Importar mexe na categorização de todos: só administrador.
+router.get('/rules/export', (req, res) => {
+  res.setHeader('Content-Disposition', `attachment; filename="family-finances-regras-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json(exportRules());
+});
+router.post('/rules/import', requireAdmin, (req, res) => {
+  try {
+    const r = importRules(req.body?.data);
+    res.json({ ...r, changed: recategorizeAll() });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Erro ao importar.' });
+  }
+});
+
+// IA opcional: estado, ligar/desligar o automático e rodar agora
+router.get('/ai/status', (req, res) => res.json(ai.status()));
+router.put('/ai/auto', requireAdmin, (req, res) => {
+  ai.setAuto(Boolean(req.body?.auto));
+  res.json(ai.status());
+});
+router.post('/ai/run', requireAdmin, async (req, res) => {
+  try {
+    res.json(await ai.run('manual'));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
 });
 
 router.post('/rules', (req, res) => {
