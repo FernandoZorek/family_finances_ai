@@ -364,7 +364,9 @@ const pfSave = () => store('fin.pf', JSON.stringify(state.pf));
 
 const ROUTES = [
   { id: 'painel', label: 'Painel', ico: '📊' },
-  { id: 'lancamentos', label: 'Lançamentos', ico: '📋' },
+  { id: 'metas', label: 'Metas', ico: '🎯' },
+  { id: 'insights', label: 'Insights', ico: '💡' },
+  { id: 'lancamentos', label: 'Lançamentos', short: 'Lançam.', ico: '📋' },
   { id: 'enviar', label: 'Enviar', ico: '📤' },
   { id: 'arquivos', label: 'Arquivos', ico: '🗂️' },
   { id: 'ajustes', label: 'Ajustes', ico: '⚙️' },
@@ -415,7 +417,7 @@ function render() {
     <div class="shell">
       <nav class="bottomnav">
         <a class="navbrand" href="#/painel"><img src="/icon.svg" alt="" width="26" height="26"> ${esc(APP_NAME)}</a>
-        ${ROUTES.map((r) => `<a href="#/${r.id}" class="${state.route === r.id ? 'on' : ''}"><span class="ico">${r.ico}</span>${r.label}${r.id === 'arquivos' && state.alerts?.length ? `<span class="badge" aria-label="${state.alerts.length} documentos faltando">${state.alerts.length}</span>` : ''}</a>`).join('')}
+        ${ROUTES.map((r) => `<a href="#/${r.id}" class="${state.route === r.id ? 'on' : ''}"><span class="ico">${r.ico}</span><span class="lbl">${r.label}</span>${r.short ? `<span class="lbl-s">${r.short}</span>` : ''}${r.id === 'arquivos' && state.alerts?.length ? `<span class="badge" aria-label="${state.alerts.length} documentos faltando">${state.alerts.length}</span>` : ''}</a>`).join('')}
       </nav>
       <div class="content">
         <header class="topbar">${topbar()}</header>
@@ -424,11 +426,12 @@ function render() {
     </div>`;
   bindTopbar();
   const view = $('#view');
-  ({ painel: viewPainel, lancamentos: viewLancamentos, enviar: viewEnviar, arquivos: viewArquivos, ajustes: viewAjustes })[state.route](view);
+  ({ painel: viewPainel, metas: viewMetas, insights: viewInsights, lancamentos: viewLancamentos, enviar: viewEnviar, arquivos: viewArquivos, ajustes: viewAjustes })[state.route](view);
 }
 
 function topbar() {
-  const showFilters = ['painel', 'lancamentos'].includes(state.route);
+  const showFilters = ['painel', 'metas', 'lancamentos'].includes(state.route);
+  const showOwner = showFilters || state.route === 'insights';
   const months = [...new Set([...state.months, state.month])].sort().reverse();
   return `
     <div class="topbar-desk">
@@ -446,7 +449,7 @@ function topbar() {
         }
       </div>
       ${
-        showFilters
+        showOwner
           ? `<div class="seg" role="tablist" aria-label="Pessoa">
               <button class="${state.owner === 'all' ? 'on' : ''}" data-owner="all">👪 Família</button>
               ${state.users.map((u) => `<button class="${String(state.owner) === String(u.id) ? 'on' : ''}" data-owner="${u.id}"><span class="dot" style="background:${esc(u.color)}"></span>${esc(u.name)}</button>`).join('')}
@@ -553,12 +556,10 @@ async function viewPainel(view) {
     view.innerHTML = `<div class="card empty"><div class="big">📤</div><p>Nenhum extrato enviado ainda.</p><a class="btn" href="#/enviar">Enviar extratos e faturas</a></div>`;
     return;
   }
-  const [s, fut, cmp, budgets, aiSt] = await Promise.all([
+  const [s, fut, cmp] = await Promise.all([
     api(`/summary?month=${state.month}&owner=${state.owner}${pfQuery()}`),
     api(`/future?owner=${state.owner}&months=12${pfQuery()}`),
     api(`/compare?month=${state.month}&owner=${state.owner}${pfQuery()}`),
-    api(`/budgets?month=${state.month}&owner=${state.owner}`).catch(() => []),
-    api('/ai/status').catch(() => ({ enabled: false })),
   ]);
   const ownerName = state.owner === 'all' ? 'Família' : state.users.find((u) => String(u.id) === String(state.owner))?.name;
   const delta = s.prev.expense ? ((s.expense - s.prev.expense) / s.prev.expense) * 100 : null;
@@ -595,10 +596,8 @@ async function viewPainel(view) {
     </div>
 
     ${endingsCard(s)}
-    ${budgetsCard(budgets, s.month)}
     ${channelCard(s)}
     <section class="card" style="margin-top:14px" id="cmpCard"></section>
-    ${aiSt.enabled ? '<section class="card" style="margin-top:14px" id="insightsCard"></section>' : ''}
     <div class="grid dash" style="margin-top:14px">
       <div class="grid">
         ${s.byCategory.length ? pieCard(cats, s.expense, grouped) : ''}
@@ -706,8 +705,6 @@ async function viewPainel(view) {
   });
   bindPie(view);
   bindPainelFilters(view);
-  $$('[data-goals]', view).forEach((b) => b.addEventListener('click', () => openBudgets(() => render())));
-  if (aiSt.enabled) insightsCard($('#insightsCard', view));
   $('#taxKpi', view)?.addEventListener('click', () => openTaxes(s));
   $$('[data-chan]', view).forEach((b) =>
     b.addEventListener('click', () => {
@@ -850,6 +847,26 @@ function openTaxes(s) {
   el.classList.add('wide');
   $('#taxClose', el).addEventListener('click', close);
   $('#taxAj', el).addEventListener('click', close);
+}
+
+// ---------- telas Metas e Insights ----------
+async function viewMetas(view) {
+  view.innerHTML = `<div class="empty">Carregando…</div>`;
+  const list = await api(`/budgets?month=${state.month}&owner=${state.owner}`);
+  view.innerHTML = budgetsCard(list, state.month).replace('style="margin-top:14px"', '');
+  $$('[data-goals]', view).forEach((b) => b.addEventListener('click', () => openBudgets(() => render())));
+}
+
+async function viewInsights(view) {
+  view.innerHTML = `<div class="empty">Carregando…</div>`;
+  const st = await api('/ai/status').catch(() => ({ enabled: false }));
+  if (!st.enabled) {
+    view.innerHTML = `<section class="card"><h2>💡 Insights</h2>
+      <p class="muted small" style="margin:0">A análise por IA está desligada neste servidor. Para ligar, defina <code>FF_AI_PROVIDER</code> (Anthropic, API compatível com OpenAI, como um Ollama local, ou webhook). Veja o README.</p></section>`;
+    return;
+  }
+  view.innerHTML = '<section class="card" id="insightsCard"></section>';
+  insightsCard($('#insightsCard', view));
 }
 
 // ---------- metas de gasto ----------
