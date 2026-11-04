@@ -88,7 +88,7 @@ Itens (JSON):
 ${JSON.stringify(items.map((i) => ({ key: i.key, tipo: i.kind })))}`;
 }
 
-async function askAnthropic(text) {
+async function askAnthropic(text, schema = SCHEMA, effort = 'low') {
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new (Anthropic.default || Anthropic)({ apiKey: config.ai.apiKey || undefined, baseURL: config.ai.baseUrl || undefined });
   // classificação simples: esforço baixo; fallback do servidor se o modelo recusar o pedido
@@ -97,7 +97,7 @@ async function askAnthropic(text) {
     max_tokens: 8000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content: text }],
   });
   if (res.stop_reason === 'refusal') throw new Error('O modelo recusou o pedido.');
@@ -107,7 +107,7 @@ async function askAnthropic(text) {
 }
 
 // Qualquer API compatível com OpenAI (OpenAI, Ollama, LM Studio, OpenRouter, ...)
-async function askOpenAI(text) {
+async function askOpenAI(text, schema = SCHEMA) {
   const url = `${(config.ai.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
   const res = await fetch(url, {
     method: 'POST',
@@ -115,7 +115,7 @@ async function askOpenAI(text) {
     body: JSON.stringify({
       model: config.ai.model,
       messages: [{ role: 'user', content: text }],
-      response_format: { type: 'json_schema', json_schema: { name: 'categorias', strict: true, schema: SCHEMA } },
+      response_format: { type: 'json_schema', json_schema: { name: 'resposta', strict: true, schema } },
     }),
     signal: AbortSignal.timeout(120e3),
   });
@@ -124,16 +124,25 @@ async function askOpenAI(text) {
   return JSON.parse(data.choices?.[0]?.message?.content || '{}');
 }
 
-// Webhook próprio: recebe { categories, items } e responde { items: [{ key, category, confidence }] }
-async function askWebhook(items, cats) {
+// Webhook próprio: recebe { type, ... } e responde no mesmo formato do schema
+//   type "rules":    { categories, items } -> { items: [{ key, category, confidence }] }
+//   type "insights": { prompt, data }      -> { summary, highlights, savings, warnings }
+async function askWebhook(payload) {
   const res = await fetch(config.ai.baseUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(config.ai.apiKey ? { Authorization: `Bearer ${config.ai.apiKey}` } : {}) },
-    body: JSON.stringify({ categories: cats.map((c) => ({ name: c.name, kind: c.kind })), items: items.map((i) => ({ key: i.key, kind: i.kind })) }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(120e3),
   });
   if (!res.ok) throw new Error(`Webhook respondeu ${res.status}`);
   return res.json();
+}
+
+// Pergunta ao provedor configurado e devolve o JSON no formato do schema
+function askJSON(text, schema = SCHEMA, effort = 'low') {
+  if (config.ai.provider === 'anthropic') return askAnthropic(text, schema, effort);
+  if (config.ai.provider === 'openai') return askOpenAI(text, schema);
+  throw new Error('Provedor sem suporte a pergunta livre.');
 }
 
 function saveRun(info) {
@@ -171,7 +180,9 @@ function run(reason = 'manual') {
     try {
       const text = prompt(items, cats);
       const answer =
-        config.ai.provider === 'anthropic' ? await askAnthropic(text) : config.ai.provider === 'openai' ? await askOpenAI(text) : await askWebhook(items, cats);
+        config.ai.provider === 'webhook'
+          ? await askWebhook({ type: 'rules', categories: cats.map((c) => ({ name: c.name, kind: c.kind })), items: items.map((i) => ({ key: i.key, kind: i.kind })) })
+          : await askJSON(text);
       const byKey = new Map(items.map((i) => [i.key, i]));
       const catByName = new Map(cats.map((c) => [c.name.toLowerCase(), c]));
       const ins = db.prepare("INSERT INTO rules (pattern, category_id, priority, source) VALUES (?, (SELECT id FROM categories WHERE name = ?), 70, 'ia')");
@@ -206,4 +217,4 @@ function afterImport() {
   if (enabled() && isAuto()) run('importação').catch((e) => console.error('[ia]', e.message));
 }
 
-module.exports = { status, run, afterImport, candidates, setAuto };
+module.exports = { status, run, afterImport, candidates, setAuto, askJSON, askWebhook, enabled };

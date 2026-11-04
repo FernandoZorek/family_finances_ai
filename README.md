@@ -17,6 +17,8 @@ money went, what is coming next month and how each person and income source cont
   month comparison, "bills that end soon", online vs in-person card purchases, documents sent/missing per month.
 - **Filters:** by person, by income source (removing an income also removes its related costs), gross/net income,
   essential/comfort/other expenses.
+- **Spending goals:** monthly limit per category (groups include sub-categories), tracked on the dashboard with the month's forecast and history.
+- **AI insights (optional):** summary of the last 3/6/12 months, where you spent most and where to save; the app computes the savings over 3, 6 and 12 months and turns a suggestion into a goal in one click.
 - **Multi-user:** users from environment variables plus an admin panel; temporary passwords must be changed on first login.
 
 Supported documents: Bradesco (account and card), Itaú (account and card), Mercado Pago (account and card), Sicredi (account),
@@ -71,7 +73,8 @@ All configuration is done with environment variables (see [.env.example](.env.ex
   to the model, which picks a category; a rule is created when confidence ≥ `FF_AI_MIN_CONFIDENCE`. Rules are tagged **IA**
   for review. Run it with a button or turn on *analyze automatically after each upload*.
   **Privacy:** only the merchant name without digits is sent — no amounts, dates, accounts, documents, and never PIX/transfers
-  (they contain people's names). Use `openai` with a local Ollama (`FF_AI_BASE_URL=http://127.0.0.1:11434/v1`) to keep everything on your machine.
+  (they contain people's names). **Insights** send monthly totals per category and the top merchants of each category
+  (no PIX/transfers, no people's names). Use `openai` with a local Ollama (`FF_AI_BASE_URL=http://127.0.0.1:11434/v1`) to keep everything on your machine.
 
 Users from the environment are only **created** (never overwritten). Without any variable and with an empty database,
 an `admin` user is created. Generated passwords go to `DATA_DIR/initial-passwords.txt` (mode 600), never to logs.

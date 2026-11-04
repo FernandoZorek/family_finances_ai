@@ -57,6 +57,7 @@ function createApp() {
   api.use(require('./routes/transactions').router);
   api.use(require('./routes/dashboard'));
   api.use(require('./routes/commitments'));
+  api.use(require('./routes/goals'));
   api.use((req, res) => res.status(404).json({ error: 'Não encontrado.' }));
   app.use('/api', api);
 

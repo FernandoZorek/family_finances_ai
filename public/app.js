@@ -553,10 +553,12 @@ async function viewPainel(view) {
     view.innerHTML = `<div class="card empty"><div class="big">📤</div><p>Nenhum extrato enviado ainda.</p><a class="btn" href="#/enviar">Enviar extratos e faturas</a></div>`;
     return;
   }
-  const [s, fut, cmp] = await Promise.all([
+  const [s, fut, cmp, budgets, aiSt] = await Promise.all([
     api(`/summary?month=${state.month}&owner=${state.owner}${pfQuery()}`),
     api(`/future?owner=${state.owner}&months=12${pfQuery()}`),
     api(`/compare?month=${state.month}&owner=${state.owner}${pfQuery()}`),
+    api(`/budgets?month=${state.month}&owner=${state.owner}`).catch(() => []),
+    api('/ai/status').catch(() => ({ enabled: false })),
   ]);
   const ownerName = state.owner === 'all' ? 'Família' : state.users.find((u) => String(u.id) === String(state.owner))?.name;
   const delta = s.prev.expense ? ((s.expense - s.prev.expense) / s.prev.expense) * 100 : null;
@@ -593,8 +595,10 @@ async function viewPainel(view) {
     </div>
 
     ${endingsCard(s)}
+    ${budgetsCard(budgets, s.month)}
     ${channelCard(s)}
     <section class="card" style="margin-top:14px" id="cmpCard"></section>
+    ${aiSt.enabled ? '<section class="card" style="margin-top:14px" id="insightsCard"></section>' : ''}
     <div class="grid dash" style="margin-top:14px">
       <div class="grid">
         ${s.byCategory.length ? pieCard(cats, s.expense, grouped) : ''}
@@ -702,6 +706,8 @@ async function viewPainel(view) {
   });
   bindPie(view);
   bindPainelFilters(view);
+  $$('[data-goals]', view).forEach((b) => b.addEventListener('click', () => openBudgets(() => render())));
+  if (aiSt.enabled) insightsCard($('#insightsCard', view));
   $('#taxKpi', view)?.addEventListener('click', () => openTaxes(s));
   $$('[data-chan]', view).forEach((b) =>
     b.addEventListener('click', () => {
@@ -844,6 +850,126 @@ function openTaxes(s) {
   el.classList.add('wide');
   $('#taxClose', el).addEventListener('click', close);
   $('#taxAj', el).addEventListener('click', close);
+}
+
+// ---------- metas de gasto ----------
+const GOAL_STATUS = { ok: ['✅', 'dentro da meta'], perto: ['⚠️', 'perto do limite'], estourou: ['🔴', 'estourou'] };
+function budgetsCard(list, month) {
+  if (!list.length)
+    return `<section class="card" style="margin-top:14px"><div class="cardhead"><h2>🎯 Metas de gasto</h2><button class="linkbtn" data-goals>Definir metas</button></div>
+      <p class="muted small" style="margin:0">Defina quanto quer gastar por mês em cada categoria (ex.: Restaurantes até R$ 400) e acompanhe aqui, com o previsto do mês.</p></section>`;
+  const over = list.filter((b) => b.status === 'estourou').length;
+  return `<section class="card" style="margin-top:14px">
+    <div class="cardhead"><h2>🎯 Metas do mês <small>${monthLabel(month)}${over ? ` · ${over} ${over === 1 ? 'estourou' : 'estouraram'}` : ''}</small></h2><button class="linkbtn" data-goals>Gerenciar metas</button></div>
+    <div class="goals">${list
+      .map((b) => {
+        const max = Math.max(b.monthly_limit, b.total) || 1;
+        const [ic, label] = GOAL_STATUS[b.status];
+        return `<div class="goal ${b.status}">
+          <div class="goal-top"><span>${esc(b.icon)} ${esc(b.name)}</span><span class="num"><b>${brl(b.total)}</b> <span class="muted small">de ${brl(b.monthly_limit)}</span></span></div>
+          <div class="goal-bar" role="img" aria-label="${esc(b.name)}: ${b.pct}% da meta, ${label}">
+            <span class="real" style="width:${(b.spent / max) * 100}%"></span><span class="proj" style="width:${(b.projected / max) * 100}%"></span>
+            <i class="limit" style="left:${(b.monthly_limit / max) * 100}%"></i></div>
+          <div class="goal-sub muted small"><span>${ic} ${label} · ${String(b.pct).replace('.', ',')}%${b.projected ? ` · inclui ${brl(b.projected)} previsto` : ''}${b.remaining >= 0 ? ` · sobram ${brl(b.remaining)}` : ` · ${brl(-b.remaining)} acima`}</span>
+            <span class="goal-hist" title="Últimos meses">${b.history
+              .slice(0, -1)
+              .map((h) => `<span title="${monthLabel(h.m)}: ${brl(h.total)}">${MONTHS[Number(h.m.slice(5)) - 1]} ${h.total ? GOAL_STATUS[h.status][0] : '–'}</span>`)
+              .join('')}</span></div>
+        </div>`;
+      })
+      .join('')}</div>
+    <p class="muted small" style="margin:8px 0 0">Barra cheia: gasto real · clara: previsto até o fim do mês (parcelas e recorrentes) · traço: a meta.</p>
+  </section>`;
+}
+
+async function openBudgets(done) {
+  const list = await api(`/budgets/suggestions?month=${state.month}&owner=${state.owner}`);
+  const { el, close } = sheet(`
+    <h3>Metas de gasto por mês</h3>
+    <p class="muted small" style="margin-top:4px">Valor mensal por categoria principal (soma as subcategorias). A média é dos últimos 3 meses, para referência. Deixe em branco para não ter meta.</p>
+    <form id="goalsForm"><div class="table-wrap"><table class="simple num entries"><thead><tr><th>Categoria</th><th class="r">Média 3 meses</th><th class="r">Meta por mês</th></tr></thead><tbody>
+      ${list
+        .map(
+          (c) => `<tr><td class="desc">${esc(c.icon)} ${esc(c.name)}</td><td class="r muted">${c.average ? brl(c.average) : '–'}</td>
+            <td class="r"><input type="number" inputmode="decimal" min="0" step="10" class="goalin" data-goal="${c.category_id}" value="${c.limit ?? ''}" placeholder="${c.average ? Math.round(c.average) : ''}" aria-label="Meta de ${esc(c.name)}"></td></tr>`
+        )
+        .join('')}</tbody></table></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" type="submit">Salvar metas</button><button class="btn ghost" type="button" id="goalsCancel">Cancelar</button></div></form>`);
+  el.classList.add('wide');
+  $('#goalsCancel', el).addEventListener('click', close);
+  $('#goalsForm', el).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const items = $$('[data-goal]', el).map((i) => ({ category_id: Number(i.dataset.goal), monthly_limit: i.value === '' ? 0 : Number(i.value) }));
+    try {
+      await api('/budgets', { method: 'PUT', body: { items } });
+      toast('Metas salvas');
+      close();
+      done();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+}
+
+// ---------- insights por IA ----------
+function insightsCard(box) {
+  const draw = (r) => {
+    const period = r ? `${monthLabel(r.period[0])} a ${monthLabel(r.period[r.period.length - 1])}` : '';
+    box.innerHTML = `
+      <div class="cardhead"><h2>💡 Insights <small>IA</small></h2>
+        <span class="insctl"><select id="insMonths" aria-label="Período">${[3, 6, 12].map((n) => `<option value="${n}" ${r?.months === n ? 'selected' : ''}>Últimos ${n} meses</option>`).join('')}</select>
+        <button class="btn sm" id="insRun">${r ? 'Gerar de novo' : 'Gerar análise'}</button></span></div>
+      ${
+        !r
+          ? '<p class="muted small" style="margin:0">A IA analisa os gastos dos últimos meses (totais por categoria e as maiores lojas, sem PIX nem nomes de pessoas), aponta onde foi gasto mais e sugere onde economizar. As contas de economia são feitas pelo app.</p>'
+          : `<p class="muted small" style="margin:0 0 8px">${esc(period)} · gerado em ${fmtDate(r.at.slice(0, 10))} · renda média ${brl(r.income_avg)} · gasto médio ${brl(r.expense_avg)}</p>
+        <p style="margin:0 0 8px">${esc(r.summary)}</p>
+        ${r.highlights.length ? `<ul class="inslist">${r.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
+        ${r.warnings.length ? `<div class="banner" style="margin:8px 0"><b>⚠ Atenção</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+        ${
+          r.savings.length
+            ? `<h4 class="docsh">Onde dá para economizar</h4>
+          <div class="table-wrap"><table class="simple num entries"><thead><tr><th>Categoria</th><th class="r">Média/mês</th><th class="r">Sugerido</th><th class="r">Economia/mês</th><th class="r">3 meses</th><th class="r">6 meses</th><th class="r">12 meses</th><th></th></tr></thead>
+          <tbody>${r.savings
+            .map(
+              (x, i) => `<tr><td class="desc"><b>${esc(x.category)}</b><div class="muted small">${esc(x.reason)}</div>${x.actions.length ? `<ul class="inslist small">${x.actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
+                <td class="r">${brl(x.average)}</td><td class="r">${brl(x.target)}</td><td class="r"><b>${brl(x.monthly)}</b></td><td class="r">${brl(x.in3)}</td><td class="r">${brl(x.in6)}</td><td class="r">${brl(x.in12)}</td>
+                <td><button class="btn ghost sm" data-usegoal="${i}" title="Criar meta com o valor sugerido">Usar como meta</button></td></tr>`
+            )
+            .join('')}</tbody>
+          <tfoot><tr><td><b>Total</b></td><td></td><td></td><td class="r"><b>${brl(r.total.monthly)}</b></td><td class="r"><b>${brl(r.total.in3)}</b></td><td class="r"><b>${brl(r.total.in6)}</b></td><td class="r"><b>${brl(r.total.in12)}</b></td><td></td></tr></tfoot></table></div>`
+            : ''
+        }
+        <p class="muted small" style="margin:8px 0 0">Sugestões geradas por IA a partir dos seus totais: confira antes de seguir. Economia = média do período − valor sugerido.</p>`
+      }`;
+    $('#insRun', box).addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Analisando…';
+      try {
+        draw(await api('/insights', { method: 'POST', body: { months: Number($('#insMonths', box).value), owner: state.owner } }));
+      } catch (err) {
+        toast(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Gerar análise';
+      }
+    });
+    $$('[data-usegoal]', box).forEach((b) =>
+      b.addEventListener('click', async () => {
+        const x = r.savings[Number(b.dataset.usegoal)];
+        const cat = state.categories.find((c) => c.name === x.category);
+        if (!cat) return toast('Categoria não encontrada.');
+        try {
+          await api('/budgets', { method: 'PUT', body: { items: [{ category_id: cat.id, monthly_limit: x.target }] } });
+          toast(`Meta de ${x.category}: ${brl(x.target)} por mês`);
+          render();
+        } catch (err) {
+          toast(err.message);
+        }
+      })
+    );
+  };
+  api(`/insights?owner=${state.owner}`).then(draw).catch(() => draw(null));
 }
 
 // Online x presencial: de onde veio a dedução

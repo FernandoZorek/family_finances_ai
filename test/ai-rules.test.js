@@ -10,6 +10,17 @@ const mock = http.createServer((req, res) => {
   req.on('data', (c) => (body += c));
   req.on('end', () => {
     received = JSON.parse(body);
+    if (received.type === 'insights') {
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({
+        summary: 'Gasto estável.',
+        highlights: ['Mercado é o maior gasto.'],
+        warnings: [],
+        // meta acima da média é limitada à média (economia 0, sai da lista); categoria inexistente é ignorada
+        savings: [{ category: 'Mercado', monthly_target: 30, reason: 'Comprar no atacado', actions: ['Lista de compras'] },
+          { category: 'Inexistente', monthly_target: 1, reason: 'x', actions: [] }],
+      }));
+    }
     const answer = received.items.map((i) =>
       /PADARIA/.test(i.key) ? { key: i.key, category: 'Mercado', confidence: 0.95 }
       : /CURSO/.test(i.key) ? { key: i.key, category: 'Educação', confidence: 0.5 } // abaixo do mínimo
@@ -81,4 +92,37 @@ test('exportar e importar regras (mescla, cria categorias que faltam, valida o a
   assert.equal(imp.data.rules_created, 1); // só PETZ: o resto já existia
   assert.equal(imp.data.skipped, 1); // "X" curto demais
   assert.equal((await c('POST', '/api/rules/import', { data: { format: 'outro', rules: [] } })).status, 400);
+});
+
+test('metas de gasto e insights (economia calculada pelo app)', async () => {
+  const cats = (await c('GET', '/api/categories')).data;
+  const mercado = cats.find((x) => x.key === 'Mercado').id;
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 15).toISOString().slice(0, 10);
+  const month = now.toISOString().slice(0, 7);
+  assert.equal((await c('POST', '/api/transactions', { date: prev, description: 'SUPERMERCADO BOM', amount: '100,00', type: 'despesa', category_id: mercado })).status, 200);
+  assert.equal((await c('PUT', '/api/budgets', { items: [{ category_id: mercado, monthly_limit: 60 }] })).status, 200);
+  assert.equal((await c('PUT', '/api/budgets', { items: [{ category_id: cats.find((x) => x.key === 'Salário e pró-labore').id, monthly_limit: 10 }] })).status, 400);
+
+  const b = (await c('GET', `/api/budgets?month=${month}`)).data;
+  assert.equal(b.length, 1);
+  assert.equal(b[0].monthly_limit, 60);
+  // mês atual: a padaria (50) que a IA pôs em Mercado = 83% da meta
+  assert.equal(b[0].status, 'perto');
+  assert.equal(b[0].history.at(-2).status, 'estourou'); // mês anterior: 100 de 60
+
+  const ins = await c('POST', '/api/insights', { months: 3 });
+  assert.equal(ins.status, 200, JSON.stringify(ins.data));
+  assert.equal(received.type, 'insights');
+  assert.ok(received.data.categories.every((x) => !('id' in x)));
+  assert.equal(ins.data.savings.length, 1);
+  const sav = ins.data.savings[0];
+  assert.equal(sav.category, 'Mercado');
+  assert.equal(sav.monthly, Math.round((sav.average - 30) * 100) / 100);
+  assert.equal(sav.in12, Math.round(sav.monthly * 12 * 100) / 100);
+  assert.equal((await c('GET', '/api/insights')).data.summary, 'Gasto estável.');
+  assert.equal((await c('POST', '/api/insights', { months: 3 })).status, 429); // um por minuto
+
+  assert.equal((await c('PUT', '/api/budgets', { items: [{ category_id: mercado, monthly_limit: 0 }] })).status, 200);
+  assert.equal((await c('GET', '/api/budgets')).data.length, 0);
 });

@@ -129,6 +129,13 @@ if (!cols('categories').includes('nature')) db.exec('ALTER TABLE categories ADD 
 db.exec(`CREATE TABLE IF NOT EXISTS cards (account TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'misto')`);
 db.exec(`CREATE TABLE IF NOT EXISTS channel_rules (pattern TEXT PRIMARY KEY, channel TEXT NOT NULL)`);
 if (!cols('transactions').includes('channel')) db.exec('ALTER TABLE transactions ADD COLUMN channel TEXT'); // online | presencial (manual)
+// Metas de gasto mensais por categoria (categoria-grupo soma as subcategorias)
+db.exec(`CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY,
+  category_id INTEGER NOT NULL UNIQUE REFERENCES categories(id) ON DELETE CASCADE,
+  monthly_limit REAL NOT NULL CHECK (monthly_limit > 0),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
 // Fontes de renda: a entrada e as despesas que existem por causa dela (ex.: PJ -> contador e impostos)
 db.exec(`CREATE TABLE IF NOT EXISTS income_sources (
   id INTEGER PRIMARY KEY,
