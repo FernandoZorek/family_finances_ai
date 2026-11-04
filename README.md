@@ -17,11 +17,16 @@ money went, what is coming next month and how each person and income source cont
   month comparison, "bills that end soon", online vs in-person card purchases, documents sent/missing per month.
 - **Filters:** by person, by income source (removing an income also removes its related costs), gross/net income,
   essential/comfort/other expenses.
-- **Spending goals:** monthly limit per category (groups include sub-categories), tracked on the dashboard with the month's forecast and history.
-- **AI insights (optional):** last 3/6/12 months or a custom range, optionally focused on one category or one statement/bill,
-  with a savings goal ("R$ 20,000 by December") and free-text guidance. The app computes savings over 3/6/12 months and up to the goal's
-  deadline, turns a suggestion into a spending goal in one click, and keeps saved analyses to review later.
-- **AI usage:** every AI call is logged with tokens and estimated cost — by action, by month and total (`FF_AI_PRICE_*`, `FF_USD_BRL`).
+- **Online vs in-person:** card purchases are labeled from the card type (virtual / physical / mixed, in **Ajustes › Cartões**)
+  and the merchant name; you can correct one purchase or a whole merchant.
+- **Goals (Metas):** monthly spending limit per category (groups include sub-categories), with the month's forecast,
+  status (within / close / over) and history.
+- **AI Insights (optional):** last 3/6/12 months or a custom range, optionally focused on one category or one statement/bill,
+  with a savings goal ("R$ 20,000 by December") and free-text guidance. The app computes savings over 3/6/12 months and up to the
+  goal's deadline, turns a suggestion into a spending goal in one click, and keeps saved analyses to review later.
+- **AI rules (optional):** merchants left in "Outros" get a category rule from the model, by button or after every upload.
+- **AI usage:** every AI call is logged with tokens and estimated cost — by action, by month and total.
+- **Rules export/import:** move your rules and categories to another install as a JSON file.
 - **Multi-user:** users from environment variables plus an admin panel; temporary passwords must be changed on first login.
 
 Supported documents: Bradesco (account and card), Itaú (account and card), Mercado Pago (account and card), Sicredi (account),
@@ -63,27 +68,58 @@ All configuration is done with environment variables (see [.env.example](.env.ex
 | `FF_ADMIN_USERNAME`, `FF_ADMIN_NAME`, `FF_ADMIN_PASSWORD` | – | Admin created on start if missing. Empty password = generated. |
 | `FF_USERS` | – | Other members, `user:Name,user2:Name 2`. Optional `FF_PASSWORD_<USER>`. |
 | `FF_HOME_CITIES` | – | Cities where you shop; a city glued to a card purchase marks it as in-person. |
-| `FF_AI_PROVIDER` | – | Optional AI rules: `anthropic`, `openai` (any OpenAI-compatible API, e.g. local Ollama) or `webhook`. See below. |
-| `FF_AI_MODEL`, `FF_AI_API_KEY`, `FF_AI_BASE_URL` | – | Model (Anthropic default `claude-opus-5-5`), key, base URL / webhook URL. |
-| `FF_AI_AUTO`, `FF_AI_MIN_CONFIDENCE` | `false`, `0.8` | Analyze after every upload (initial value; admins toggle it in the UI) and minimum confidence. |
+| `FF_AI_PROVIDER` | – | Turns on AI rules and Insights: `anthropic`, `openai` (any OpenAI-compatible API) or `webhook`. Empty = off. |
+| `FF_AI_MODEL` | `claude-opus-5-5` (anthropic) | Model name. Required for `openai`. |
+| `FF_AI_API_KEY` | – | API key (`anthropic` also reads `ANTHROPIC_API_KEY`; `webhook` sends it as `Authorization: Bearer`). |
+| `FF_AI_BASE_URL` | – | `openai`: API base URL. `webhook`: your endpoint URL. |
+| `FF_AI_AUTO` | `false` | Initial value of "analyze automatically after each upload" (admins toggle it in the UI). |
+| `FF_AI_MIN_CONFIDENCE` | `0.8` | Minimum confidence (0–1) to create an AI rule. |
+| `FF_AI_PRICE_INPUT`, `FF_AI_PRICE_OUTPUT` | built-in table | USD per 1M input/output tokens for the usage report (built-in: Anthropic models; Gemini 2.5 as an estimate). |
+| `FF_USD_BRL` | – | Optional exchange rate to also show AI cost in R$. |
 
-### Rules: export, import and optional AI
-
-- **Ajustes › Regras de categoria › Exportar regras** downloads a JSON with every rule and the categories it uses.
-  Admins can **import** it on another install: missing categories are created, existing rules updated, nothing deleted.
-  Keep that file private — it reflects where you shop.
-- **AI (optional, off by default):** set `FF_AI_PROVIDER`. Merchants that ended up in "Outros"/"Outras receitas" are sent
-  to the model, which picks a category; a rule is created when confidence ≥ `FF_AI_MIN_CONFIDENCE`. Rules are tagged **IA**
-  for review. Run it with a button or turn on *analyze automatically after each upload*.
-  **Privacy:** only the merchant name without digits is sent — no amounts, dates, accounts, documents, and never PIX/transfers
-  (they contain people's names). **Insights** send monthly totals per category and the top merchants of each category
-  (no PIX/transfers, no people's names). Use `openai` with a local Ollama (`FF_AI_BASE_URL=http://127.0.0.1:11434/v1`) to keep everything on your machine.
+### Users
 
 Users from the environment are only **created** (never overwritten). Without any variable and with an empty database,
 an `admin` user is created. Generated passwords go to `DATA_DIR/initial-passwords.txt` (mode 600), never to logs.
-Everyone must set a new password on first login. Admins manage users in **Ajustes › Usuários**.
+Everyone must set a new password on first login. Admins manage users in **Ajustes › Usuários** (create, reset password,
+admin role, disable, delete users without transactions). There is always at least one active admin.
 
 Lost the admin password? `node scripts/reset-password.js <user> --admin` (prompts for the new password).
+
+### Rules export / import
+
+**Ajustes › Regras de categoria › Exportar regras** downloads a JSON with every rule and the categories it uses.
+Admins can **import** it on another install: missing categories are created, existing rules updated, nothing deleted.
+Keep that file private — it reflects where you shop.
+
+### AI (optional, off by default)
+
+Set `FF_AI_PROVIDER` to enable two features:
+
+- **AI rules** (Ajustes › Regras): merchants that ended up in "Outros"/"Outras receitas" get a category from the model;
+  a rule is created when confidence ≥ `FF_AI_MIN_CONFIDENCE` and tagged **IA** for review. Run it with a button or turn on
+  *analyze automatically after each upload*.
+- **Insights** (menu **Insights**): analysis of a period with optional category/document filter, savings goal and guidance;
+  analyses can be saved. The **AI usage** panel on the same page shows calls, tokens and estimated cost by action, month and total.
+
+Providers:
+
+| Provider | Example |
+|---|---|
+| Anthropic | `FF_AI_PROVIDER=anthropic`, `FF_AI_API_KEY=...` (default model `claude-opus-5-5`) |
+| OpenAI-compatible | `FF_AI_PROVIDER=openai`, `FF_AI_BASE_URL=https://api.openai.com/v1`, `FF_AI_MODEL=...` |
+| Google Gemini | `FF_AI_PROVIDER=openai`, `FF_AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai`, `FF_AI_MODEL=gemini-2.5-flash` |
+| Local (Ollama) | `FF_AI_PROVIDER=openai`, `FF_AI_BASE_URL=http://127.0.0.1:11434/v1`, `FF_AI_MODEL=llama3.1` — nothing leaves your machine |
+| Webhook | `FF_AI_PROVIDER=webhook`, `FF_AI_BASE_URL=https://your-service/classify` |
+
+The webhook receives `POST` JSON with `type: "rules"` (`categories`, `items: [{key, kind}]`) and must answer
+`{ items: [{ key, category, confidence }] }`; or `type: "insights"` (`prompt`, `data`) and must answer
+`{ summary, highlights, savings: [{ category, monthly_target, reason, actions }], goal_feedback, warnings }`.
+It may add `usage: { input_tokens, output_tokens, cost_usd }` to feed the usage report.
+
+**Privacy.** AI rules send only merchant names without digits — no amounts, dates, accounts or documents, and never PIX/transfers
+(they contain people's names). Insights send monthly totals per category, the top merchants of each category (no PIX/transfers),
+your goal and your guidance text. Costs shown are estimates from token counts; check your provider's billing.
 
 ## Deploy
 
@@ -126,4 +162,13 @@ vem nos próximos meses e quanto cada pessoa e cada renda contribui.
 e as cidades onde vocês compram (`FF_HOME_CITIES`), e rode `docker compose up -d --build` ou `npm start`. As senhas temporárias
 ficam em `DATA_DIR/initial-passwords.txt` e precisam ser trocadas no primeiro acesso. Novos usuários: **Ajustes › Usuários**.
 
-Use sempre atrás de HTTPS e faça backup da pasta `DATA_DIR`. Os impostos embutidos nos preços são **estimativas** por categoria.
+**Telas:** Painel (receitas, despesas, saldo, impostos, previsão, comparação de meses, online x presencial), **Metas** (limite
+mensal por categoria, com previsto e histórico), **Insights** (análise por IA com período, categoria, documento, objetivo e
+direcionamento; análises salvas; uso e custo de IA), Lançamentos, Enviar, Arquivos e Ajustes (regras, exportar/importar,
+categorias, rendas, cartões, recorrentes, usuários).
+
+**IA (opcional):** defina `FF_AI_PROVIDER` (Anthropic, qualquer API compatível com OpenAI, como Gemini ou um Ollama local, ou
+um webhook seu). Regras por IA mandam só o nome da loja; os Insights mandam totais por categoria, as maiores lojas, o objetivo
+e o direcionamento. Nunca vão PIX nem nomes de pessoas.
+
+Use sempre atrás de HTTPS e faça backup da pasta `DATA_DIR`. Os impostos embutidos nos preços e o custo da IA são **estimativas**.
