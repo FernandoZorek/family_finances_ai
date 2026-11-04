@@ -22,10 +22,33 @@ router.put('/budgets', (req, res) => {
   }
 });
 
+// Insights: última análise, opções dos filtros, gerar (com filtros), salvas (listar, abrir, salvar, excluir)
 router.get('/insights', (req, res) => res.json(insights.last(ownerOf(req.query))));
+router.get('/insights/options', (req, res) => res.json(insights.options(ownerOf(req.query))));
+router.get('/insights/saved', (req, res) => res.json(insights.listSaved()));
+router.get('/insights/:id(\\d+)', (req, res) => {
+  const r = insights.get(req.params.id);
+  return r ? res.json(r) : res.status(404).json({ error: 'Análise não encontrada.' });
+});
 router.post('/insights', async (req, res) => {
   try {
-    res.json(await insights.generate({ months: req.body?.months, owner: ownerOf(req.body || {}) }));
+    res.json(await insights.generate(req.body || {}, req.user));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.patch('/insights/:id(\\d+)', (req, res) => {
+  try {
+    insights.save(req.params.id, req.body?.title);
+    res.json({ ok: true });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+router.delete('/insights/:id(\\d+)', (req, res) => {
+  try {
+    insights.remove(req.params.id, req.user);
+    res.json({ ok: true });
   } catch (e) {
     fail(res, e);
   }

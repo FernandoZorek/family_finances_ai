@@ -36,7 +36,7 @@ router.post('/imports', upload.array('files'), async (req, res) => {
     }
   }
   // IA (se ligada e no automático): analisa as lojas novas sem categoria, em segundo plano
-  if (results.some((r) => r.ok)) afterImport();
+  if (results.some((r) => r.ok)) afterImport(req.user);
   res.json({ results });
 });
 

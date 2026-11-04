@@ -167,13 +167,14 @@ router.post('/rules/import', requireAdmin, (req, res) => {
 
 // IA opcional: estado, ligar/desligar o automático e rodar agora
 router.get('/ai/status', (req, res) => res.json(ai.status()));
+router.get('/ai/usage', (req, res) => res.json(ai.usageReport({ from: req.query.from, to: req.query.to })));
 router.put('/ai/auto', requireAdmin, (req, res) => {
   ai.setAuto(Boolean(req.body?.auto));
   res.json(ai.status());
 });
 router.post('/ai/run', requireAdmin, async (req, res) => {
   try {
-    res.json(await ai.run('manual'));
+    res.json(await ai.run('manual', req.user));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }

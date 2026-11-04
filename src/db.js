@@ -136,6 +136,30 @@ db.exec(`CREATE TABLE IF NOT EXISTS budgets (
   monthly_limit REAL NOT NULL CHECK (monthly_limit > 0),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
+// Uso de IA: cada chamada com tokens e custo estimado (por ação, período e total)
+db.exec(`CREATE TABLE IF NOT EXISTS ai_usage (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  action TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  ok INTEGER NOT NULL DEFAULT 1
+)`);
+// Análises por IA (insights): a última gerada e as que o usuário salvou para rever
+db.exec(`CREATE TABLE IF NOT EXISTS insights (
+  id INTEGER PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  title TEXT,
+  saved INTEGER NOT NULL DEFAULT 0,
+  params TEXT NOT NULL,
+  result TEXT NOT NULL
+)`);
 // Fontes de renda: a entrada e as despesas que existem por causa dela (ex.: PJ -> contador e impostos)
 db.exec(`CREATE TABLE IF NOT EXISTS income_sources (
   id INTEGER PRIMARY KEY,

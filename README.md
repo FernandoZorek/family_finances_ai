@@ -18,7 +18,10 @@ money went, what is coming next month and how each person and income source cont
 - **Filters:** by person, by income source (removing an income also removes its related costs), gross/net income,
   essential/comfort/other expenses.
 - **Spending goals:** monthly limit per category (groups include sub-categories), tracked on the dashboard with the month's forecast and history.
-- **AI insights (optional):** summary of the last 3/6/12 months, where you spent most and where to save; the app computes the savings over 3, 6 and 12 months and turns a suggestion into a goal in one click.
+- **AI insights (optional):** last 3/6/12 months or a custom range, optionally focused on one category or one statement/bill,
+  with a savings goal ("R$ 20,000 by December") and free-text guidance. The app computes savings over 3/6/12 months and up to the goal's
+  deadline, turns a suggestion into a spending goal in one click, and keeps saved analyses to review later.
+- **AI usage:** every AI call is logged with tokens and estimated cost — by action, by month and total (`FF_AI_PRICE_*`, `FF_USD_BRL`).
 - **Multi-user:** users from environment variables plus an admin panel; temporary passwords must be changed on first login.
 
 Supported documents: Bradesco (account and card), Itaú (account and card), Mercado Pago (account and card), Sicredi (account),

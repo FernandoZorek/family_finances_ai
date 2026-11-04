@@ -7,6 +7,43 @@ const config = require('./config');
 const { similarKey, recategorizeAll } = require('./categorize');
 
 const FALLBACK_CATS = ['Outros', 'Outras receitas'];
+
+// Preço por 1M de tokens (USD). Anthropic: tabela de preços oficial; Gemini: página de preços do Google
+// (estimativa, confira). FF_AI_PRICE_INPUT/OUTPUT sobrepõem. Modelo fora da tabela e sem preço: custo fica em branco.
+const PRICES = {
+  'claude-fable-5-1': [10, 50],
+  'claude-opus-5-5': [4, 20],
+  'claude-opus-5': [5, 25],
+  'claude-sonnet-5-5': [2, 10],
+  'claude-sonnet-5': [2, 10],
+  'claude-haiku-5-5': [0.1, 0.5],
+  'gemini-2.5-flash': [0.3, 2.5],
+  'gemini-2.5-flash-lite': [0.1, 0.4],
+  'gemini-2.5-pro': [1.25, 10],
+};
+function priceOf(model) {
+  if (config.ai.priceInput != null && config.ai.priceOutput != null) return { input: config.ai.priceInput, output: config.ai.priceOutput, source: 'configurado' };
+  const p = PRICES[model];
+  return p ? { input: p[0], output: p[1], source: String(model).startsWith('gemini') ? 'tabela do app (estimativa)' : 'tabela do app' } : null;
+}
+
+// registra cada chamada (também as que falharam), com custo estimado
+function recordUsage(meta, model, usage, ok) {
+  const inT = Math.max(0, Math.round(usage?.input || 0));
+  const outT = Math.max(0, Math.round(usage?.output || 0));
+  const price = priceOf(model);
+  const cost = usage?.cost_usd != null ? Number(usage.cost_usd) : price ? (inT * price.input + outT * price.output) / 1e6 : null;
+  db.prepare('INSERT INTO ai_usage (action, provider, model, input_tokens, output_tokens, cost_usd, user_id, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    meta?.action || 'outro',
+    config.ai.provider,
+    model || null,
+    inT,
+    outT,
+    cost,
+    meta?.user?.id || null,
+    ok ? 1 : 0
+  );
+}
 const SKIP = /\b(PIX|TED|DOC|TRANSF|TRANSFERENCIA|DEPOSITO|SAQUE|PAGAMENTO DE FATURA|PAGTO FATURA|BOLETO)\b/;
 const MAX_ITEMS = 80;
 
@@ -100,10 +137,13 @@ async function askAnthropic(text, schema = SCHEMA, effort = 'low') {
     output_config: { effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content: text }],
   });
-  if (res.stop_reason === 'refusal') throw new Error('O modelo recusou o pedido.');
-  if (res.stop_reason === 'max_tokens') throw new Error('Resposta cortada (max_tokens).');
+  // tokens de entrada incluem os de cache (lidos/escritos); saída inclui o raciocínio
+  const u = res.usage || {};
+  const usage = { input: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), output: u.output_tokens || 0 };
+  if (res.stop_reason === 'refusal') throw Object.assign(new Error('O modelo recusou o pedido.'), { usage });
+  if (res.stop_reason === 'max_tokens') throw Object.assign(new Error('Resposta cortada (max_tokens).'), { usage });
   const block = res.content.find((b) => b.type === 'text');
-  return JSON.parse(block?.text || '{}');
+  return { json: JSON.parse(block?.text || '{}'), usage, model: res.model || config.ai.model };
 }
 
 // Qualquer API compatível com OpenAI (OpenAI, Ollama, LM Studio, OpenRouter, ...)
@@ -121,28 +161,68 @@ async function askOpenAI(text, schema = SCHEMA) {
   });
   if (!res.ok) throw new Error(`API respondeu ${res.status}`);
   const data = await res.json();
-  return JSON.parse(data.choices?.[0]?.message?.content || '{}');
+  // saída = total - entrada (inclui tokens de raciocínio, cobrados como saída)
+  const u = data.usage || {};
+  const usage = { input: u.prompt_tokens || 0, output: u.total_tokens ? u.total_tokens - (u.prompt_tokens || 0) : u.completion_tokens || 0 };
+  return { json: JSON.parse(data.choices?.[0]?.message?.content || '{}'), usage, model: config.ai.model };
 }
 
 // Webhook próprio: recebe { type, ... } e responde no mesmo formato do schema
 //   type "rules":    { categories, items } -> { items: [{ key, category, confidence }] }
 //   type "insights": { prompt, data }      -> { summary, highlights, savings, warnings }
-async function askWebhook(payload) {
+async function askWebhook(payload, meta) {
   const res = await fetch(config.ai.baseUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(config.ai.apiKey ? { Authorization: `Bearer ${config.ai.apiKey}` } : {}) },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(120e3),
   });
-  if (!res.ok) throw new Error(`Webhook respondeu ${res.status}`);
-  return res.json();
+  if (!res.ok) {
+    recordUsage(meta, null, null, false);
+    throw new Error(`Webhook respondeu ${res.status}`);
+  }
+  const json = await res.json();
+  // o webhook pode informar o uso: { usage: { input_tokens, output_tokens, cost_usd } }
+  const u = json?.usage || {};
+  recordUsage(meta, u.model || null, { input: u.input_tokens, output: u.output_tokens, cost_usd: u.cost_usd }, true);
+  return json;
 }
 
-// Pergunta ao provedor configurado e devolve o JSON no formato do schema
-function askJSON(text, schema = SCHEMA, effort = 'low') {
-  if (config.ai.provider === 'anthropic') return askAnthropic(text, schema, effort);
-  if (config.ai.provider === 'openai') return askOpenAI(text, schema);
-  throw new Error('Provedor sem suporte a pergunta livre.');
+// Pergunta ao provedor configurado e devolve o JSON no formato do schema; registra o uso (ação, tokens, custo)
+async function askJSON(text, schema = SCHEMA, effort = 'low', meta = {}) {
+  const ask = config.ai.provider === 'anthropic' ? () => askAnthropic(text, schema, effort) : config.ai.provider === 'openai' ? () => askOpenAI(text, schema) : null;
+  if (!ask) throw new Error('Provedor sem suporte a pergunta livre.');
+  try {
+    const r = await ask();
+    recordUsage(meta, r.model, r.usage, true);
+    return r.json;
+  } catch (e) {
+    recordUsage(meta, config.ai.model, e.usage, false);
+    throw e;
+  }
+}
+
+// Quanto a IA gastou: por ação, por mês e total (datas AAAA-MM-DD, opcionais)
+function usageReport({ from, to } = {}) {
+  const d = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+  const where = ['1 = 1'];
+  const args = [];
+  if (d(from)) where.push('date(at) >= ?'), args.push(from);
+  if (d(to)) where.push('date(at) <= ?'), args.push(to);
+  const w = where.join(' AND ');
+  const agg = `COUNT(*) AS calls, SUM(1 - ok) AS failed, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+    ROUND(SUM(cost_usd), 6) AS cost_usd, SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS without_price`;
+  return {
+    from: d(from),
+    to: d(to),
+    currency: 'USD',
+    usd_brl: config.ai.usdBrl,
+    price: config.ai.provider && config.ai.provider !== 'webhook' ? { model: config.ai.model, ...(priceOf(config.ai.model) || { input: null, output: null, source: 'sem preço (defina FF_AI_PRICE_INPUT/OUTPUT)' }) } : null,
+    total: db.prepare(`SELECT ${agg} FROM ai_usage WHERE ${w}`).get(...args),
+    by_action: db.prepare(`SELECT action, ${agg} FROM ai_usage WHERE ${w} GROUP BY action ORDER BY cost_usd DESC, calls DESC`).all(...args),
+    by_month: db.prepare(`SELECT substr(at, 1, 7) AS month, ${agg} FROM ai_usage WHERE ${w} GROUP BY month ORDER BY month DESC`).all(...args),
+    by_model: db.prepare(`SELECT COALESCE(model, provider) AS model, ${agg} FROM ai_usage WHERE ${w} GROUP BY 1 ORDER BY cost_usd DESC`).all(...args),
+  };
 }
 
 function saveRun(info) {
@@ -167,7 +247,7 @@ function status() {
 }
 
 // Roda uma análise (uma por vez). Cria regras "ia" para as respostas com confiança suficiente.
-function run(reason = 'manual') {
+function run(reason = 'manual', user = null) {
   if (!enabled()) return Promise.reject(Object.assign(new Error('IA desligada (defina FF_AI_PROVIDER).'), { status: 400 }));
   if (running) return running;
   running = (async () => {
@@ -181,8 +261,8 @@ function run(reason = 'manual') {
       const text = prompt(items, cats);
       const answer =
         config.ai.provider === 'webhook'
-          ? await askWebhook({ type: 'rules', categories: cats.map((c) => ({ name: c.name, kind: c.kind })), items: items.map((i) => ({ key: i.key, kind: i.kind })) })
-          : await askJSON(text);
+          ? await askWebhook({ type: 'rules', categories: cats.map((c) => ({ name: c.name, kind: c.kind })), items: items.map((i) => ({ key: i.key, kind: i.kind })) }, { action: 'regras', user })
+          : await askJSON(text, SCHEMA, 'low', { action: 'regras', user });
       const byKey = new Map(items.map((i) => [i.key, i]));
       const catByName = new Map(cats.map((c) => [c.name.toLowerCase(), c]));
       const ins = db.prepare("INSERT INTO rules (pattern, category_id, priority, source) VALUES (?, (SELECT id FROM categories WHERE name = ?), 70, 'ia')");
@@ -213,8 +293,8 @@ function run(reason = 'manual') {
 }
 
 // Depois de cada importação, se FF_AI_AUTO=true (em segundo plano, sem atrasar o envio)
-function afterImport() {
-  if (enabled() && isAuto()) run('importação').catch((e) => console.error('[ia]', e.message));
+function afterImport(user = null) {
+  if (enabled() && isAuto()) run('importação', user).catch((e) => console.error('[ia]', e.message));
 }
 
-module.exports = { status, run, afterImport, candidates, setAuto, askJSON, askWebhook, enabled };
+module.exports = { status, run, afterImport, candidates, setAuto, askJSON, askWebhook, enabled, usageReport, priceOf };

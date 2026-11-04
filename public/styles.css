@@ -187,8 +187,8 @@ input[type=text], input[type=password], input[type=search], input[type=date], in
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; width: 100%; font-size: 16px;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
-label.field { display: block; margin-bottom: 12px; }
-label.field > span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 4px; font-weight: 600; }
+label.field, div.field { display: block; margin-bottom: 12px; }
+label.field > span, div.field > span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 4px; font-weight: 600; }
 .check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-size: 14px; }
 .check input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
 
@@ -431,3 +431,9 @@ button.main.editcat:hover .title { text-decoration: underline; }
   .insctl { width: 100%; }
   .insctl select { flex: 1; }
 }
+.insform { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 12px; }
+.insform .insguide, .insform .actions { grid-column: 1 / -1; }
+.insform textarea { width: 100%; resize: vertical; }
+.goalbox { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.goalbox.short .goal-bar .real { background: var(--s4); }
+.usagek { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)) !important; margin-bottom: 4px; }

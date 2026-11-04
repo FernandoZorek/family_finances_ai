@@ -862,11 +862,12 @@ async function viewInsights(view) {
   const st = await api('/ai/status').catch(() => ({ enabled: false }));
   if (!st.enabled) {
     view.innerHTML = `<section class="card"><h2>💡 Insights</h2>
-      <p class="muted small" style="margin:0">A análise por IA está desligada neste servidor. Para ligar, defina <code>FF_AI_PROVIDER</code> (Anthropic, API compatível com OpenAI, como um Ollama local, ou webhook). Veja o README.</p></section>`;
+      <p class="muted small" style="margin:0">A análise por IA está desligada neste servidor. Para ligar, defina <code>FF_AI_PROVIDER</code> (Anthropic, API compatível com OpenAI, como um Ollama local, ou webhook). Veja o README.</p></section>
+      <section class="card" style="margin-top:14px" id="aiUsage"></section>`;
+    loadUsage($('#aiUsage', view));
     return;
   }
-  view.innerHTML = '<section class="card" id="insightsCard"></section>';
-  insightsCard($('#insightsCard', view));
+  await insightsPage(view);
 }
 
 // ---------- metas de gasto ----------
@@ -929,64 +930,222 @@ async function openBudgets(done) {
 }
 
 // ---------- insights por IA ----------
-function insightsCard(box) {
-  const draw = (r) => {
-    const period = r ? `${monthLabel(r.period[0])} a ${monthLabel(r.period[r.period.length - 1])}` : '';
-    box.innerHTML = `
-      <div class="cardhead"><h2>💡 Insights <small>IA</small></h2>
-        <span class="insctl"><select id="insMonths" aria-label="Período">${[3, 6, 12].map((n) => `<option value="${n}" ${r?.months === n ? 'selected' : ''}>Últimos ${n} meses</option>`).join('')}</select>
-        <button class="btn sm" id="insRun">${r ? 'Gerar de novo' : 'Gerar análise'}</button></span></div>
-      ${
-        !r
-          ? '<p class="muted small" style="margin:0">A IA analisa os gastos dos últimos meses (totais por categoria e as maiores lojas, sem PIX nem nomes de pessoas), aponta onde foi gasto mais e sugere onde economizar. As contas de economia são feitas pelo app.</p>'
-          : `<p class="muted small" style="margin:0 0 8px">${esc(period)} · gerado em ${fmtDate(r.at.slice(0, 10))} · renda média ${brl(r.income_avg)} · gasto médio ${brl(r.expense_avg)}</p>
-        <p style="margin:0 0 8px">${esc(r.summary)}</p>
-        ${r.highlights.length ? `<ul class="inslist">${r.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
-        ${r.warnings.length ? `<div class="banner" style="margin:8px 0"><b>⚠ Atenção</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
-        ${
-          r.savings.length
-            ? `<h4 class="docsh">Onde dá para economizar</h4>
-          <div class="table-wrap"><table class="simple num entries"><thead><tr><th>Categoria</th><th class="r">Média/mês</th><th class="r">Sugerido</th><th class="r">Economia/mês</th><th class="r">3 meses</th><th class="r">6 meses</th><th class="r">12 meses</th><th></th></tr></thead>
-          <tbody>${r.savings
-            .map(
-              (x, i) => `<tr><td class="desc"><b>${esc(x.category)}</b><div class="muted small">${esc(x.reason)}</div>${x.actions.length ? `<ul class="inslist small">${x.actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
-                <td class="r">${brl(x.average)}</td><td class="r">${brl(x.target)}</td><td class="r"><b>${brl(x.monthly)}</b></td><td class="r">${brl(x.in3)}</td><td class="r">${brl(x.in6)}</td><td class="r">${brl(x.in12)}</td>
-                <td><button class="btn ghost sm" data-usegoal="${i}" title="Criar meta com o valor sugerido">Usar como meta</button></td></tr>`
-            )
-            .join('')}</tbody>
-          <tfoot><tr><td><b>Total</b></td><td></td><td></td><td class="r"><b>${brl(r.total.monthly)}</b></td><td class="r"><b>${brl(r.total.in3)}</b></td><td class="r"><b>${brl(r.total.in6)}</b></td><td class="r"><b>${brl(r.total.in12)}</b></td><td></td></tr></tfoot></table></div>`
-            : ''
-        }
-        <p class="muted small" style="margin:8px 0 0">Sugestões geradas por IA a partir dos seus totais: confira antes de seguir. Economia = média do período − valor sugerido.</p>`
-      }`;
-    $('#insRun', box).addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      btn.disabled = true;
-      btn.textContent = 'Analisando…';
+const KIND_LABEL = { conta: 'Extratos', cartao: 'Faturas', holerite: 'Holerites', manual: 'Lançamentos manuais' };
+const usd = (v) => (v == null ? '–' : `US$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 })}`);
+const tokens = (v) => Number(v || 0).toLocaleString('pt-BR');
+
+async function insightsPage(view) {
+  const [opts, saved, lastR] = await Promise.all([
+    api(`/insights/options?owner=${state.owner}`),
+    api('/insights/saved').catch(() => []),
+    api(`/insights?owner=${state.owner}`).catch(() => null),
+  ]);
+  const f = (state.insForm ??= { range: '3', from: '', to: '', category_id: '', account: '', goal_amount: '', goal_month: '', guidance: '' });
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  view.innerHTML = `
+    <section class="card">
+      <h2>💡 Insights <small>IA</small></h2>
+      <form id="insForm" class="insform">
+        <label class="field"><span>Período</span><select name="range">
+          ${[['3', 'Últimos 3 meses'], ['6', 'Últimos 6 meses'], ['12', 'Últimos 12 meses'], ['custom', 'Escolher de/até']].map(([v, l]) => `<option value="${v}" ${f.range === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="field insrange" ${f.range === 'custom' ? '' : 'style="display:none"'}><span>De / até</span>
+          <div class="filters"><input type="month" name="from" value="${esc(f.from || opts.min_month || '')}" min="${esc(opts.min_month || '')}" max="${esc(opts.max_month || thisMonth)}" aria-label="De">
+          <input type="month" name="to" value="${esc(f.to || opts.max_month || '')}" min="${esc(opts.min_month || '')}" max="${esc(opts.max_month || thisMonth)}" aria-label="Até"></div></div>
+        <label class="field"><span>Categoria</span><select name="category_id"><option value="">Todas</option>
+          ${opts.categories.map((c) => `<option value="${c.id}" ${String(f.category_id) === String(c.id) ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Documento</span><select name="account"><option value="">Todos os extratos e faturas</option>
+          ${['conta', 'cartao', 'holerite', 'manual']
+            .map((k) => {
+              const list = opts.accounts.filter((x) => x.kind === k);
+              return list.length ? `<optgroup label="${KIND_LABEL[k]}">${list.map((x) => `<option value="${esc(x.account)}" ${f.account === x.account ? 'selected' : ''}>${esc(x.account)}${x.owner ? ` · ${esc(x.owner)}` : ''}</option>`).join('')}</optgroup>` : '';
+            })
+            .join('')}</select></label>
+        <div class="field"><span>Objetivo (opcional)</span>
+          <div class="filters"><input type="text" inputmode="decimal" name="goal_amount" value="${esc(f.goal_amount)}" placeholder="Juntar R$ (ex.: 20.000)" aria-label="Valor do objetivo">
+          <input type="month" name="goal_month" value="${esc(f.goal_month)}" min="${thisMonth}" aria-label="Até quando"></div></div>
+        <label class="field insguide"><span>Direcionamento (opcional)</span><textarea name="guidance" rows="2" maxlength="600" placeholder="Ex.: quero economizar R$ 20 mil até o fim do ano sem cortar a escola das crianças">${esc(f.guidance)}</textarea></label>
+        <div class="actions"><button class="btn" type="submit" id="insRun">Gerar análise</button></div>
+      </form>
+      <p class="muted small" style="margin:6px 0 0">Vão para a IA só totais por mês e por categoria e as maiores lojas (sem PIX nem nomes de pessoas), mais o seu direcionamento. As contas de economia e do objetivo são feitas pelo app.</p>
+    </section>
+    <section class="card" style="margin-top:14px" id="insResult"></section>
+    <section class="card" style="margin-top:14px"><h2>Análises salvas <small>${saved.length}</small></h2><div class="list" id="insSaved"></div></section>
+    <section class="card" style="margin-top:14px" id="aiUsage"></section>`;
+
+  const form = $('#insForm', view);
+  const sync = () => ($('.insrange', form).style.display = form.range.value === 'custom' ? '' : 'none');
+  form.range.addEventListener('change', sync);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(form));
+    Object.assign(f, fd);
+    const body = {
+      owner: state.owner,
+      ...(fd.range === 'custom' ? { from: fd.from, to: fd.to } : { months: Number(fd.range) }),
+      category_id: fd.category_id || null,
+      account: fd.account || null,
+      goal_amount: fd.goal_amount || null,
+      goal_month: fd.goal_month || null,
+      guidance: fd.guidance || null,
+    };
+    const btn = $('#insRun', form);
+    btn.disabled = true;
+    btn.textContent = 'Analisando…';
+    try {
+      drawInsight($('#insResult', view), await api('/insights', { method: 'POST', body }), () => insightsPage(view));
+      loadUsage($('#aiUsage', view));
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Gerar análise';
+    }
+  });
+
+  const savedBox = $('#insSaved', view);
+  savedBox.innerHTML = saved.length
+    ? saved
+        .map(
+          (x) => `<div class="row catrow"><div class="ic">📌</div><div class="main"><div class="title">${esc(x.title || 'Sem título')}</div>
+            <div class="sub muted small">${fmtDate(x.at.slice(0, 10))} · ${esc(insScope(x.params))}${x.created_by ? ` · por ${esc(x.created_by)}` : ''}</div></div>
+            <div class="catsels"><button class="btn ghost sm" data-insopen="${x.id}">Ver</button><button class="btn ghost sm" data-insdel="${x.id}" aria-label="Excluir">✕</button></div></div>`
+        )
+        .join('')
+    : '<p class="muted small" style="margin:0">Nenhuma ainda. Gere uma análise e toque em "Salvar" para rever depois.</p>';
+  $$('[data-insopen]', savedBox).forEach((b) =>
+    b.addEventListener('click', async () => {
+      drawInsight($('#insResult', view), await api(`/insights/${b.dataset.insopen}`), () => insightsPage(view));
+      $('#insResult', view).scrollIntoView({ behavior: 'smooth' });
+    })
+  );
+  $$('[data-insdel]', savedBox).forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Excluir esta análise salva?')) return;
       try {
-        draw(await api('/insights', { method: 'POST', body: { months: Number($('#insMonths', box).value), owner: state.owner } }));
+        await api(`/insights/${b.dataset.insdel}`, { method: 'DELETE' });
+        insightsPage(view);
       } catch (err) {
         toast(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Gerar análise';
       }
-    });
-    $$('[data-usegoal]', box).forEach((b) =>
-      b.addEventListener('click', async () => {
-        const x = r.savings[Number(b.dataset.usegoal)];
-        const cat = state.categories.find((c) => c.name === x.category);
-        if (!cat) return toast('Categoria não encontrada.');
-        try {
-          await api('/budgets', { method: 'PUT', body: { items: [{ category_id: cat.id, monthly_limit: x.target }] } });
-          toast(`Meta de ${x.category}: ${brl(x.target)} por mês`);
-          render();
-        } catch (err) {
-          toast(err.message);
-        }
-      })
-    );
-  };
-  api(`/insights?owner=${state.owner}`).then(draw).catch(() => draw(null));
+    })
+  );
+  drawInsight($('#insResult', view), lastR, () => insightsPage(view));
+  loadUsage($('#aiUsage', view));
+}
+
+function insScope(p) {
+  if (!p) return '';
+  return [
+    `${monthLabel(p.from)} a ${monthLabel(p.to)}`,
+    p.category && `categoria ${p.category}`,
+    p.account && p.account,
+    p.goal_amount && `objetivo ${brl(p.goal_amount)} até ${monthLabel(p.goal_month)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function drawInsight(box, r, reload) {
+  if (!r) {
+    box.innerHTML = '<p class="muted small" style="margin:0">Escolha os filtros acima e gere a primeira análise.</p>';
+    return;
+  }
+  const g = r.goal;
+  const hasGoal = Boolean(g);
+  box.innerHTML = `
+    <div class="cardhead"><h2>${r.saved ? `📌 ${esc(r.title || 'Análise salva')}` : 'Resultado'} <small>${esc(insScope(r.params))}</small></h2>
+      ${r.saved ? '' : '<button class="btn ghost sm" id="insSave">💾 Salvar</button>'}</div>
+    <p class="muted small" style="margin:0 0 8px">Gerado em ${fmtDate(r.at.slice(0, 10))} · ${r.params?.category || r.params?.account ? `gasto médio no recorte ${brl(r.expense_avg)} · ` : `renda média ${brl(r.income_avg)} · gasto médio ${brl(r.expense_avg)} · `}renda média da casa ${brl(r.household_income_avg)}</p>
+    ${r.params?.guidance ? `<p class="muted small" style="margin:0 0 8px">Direcionamento: “${esc(r.params.guidance)}”</p>` : ''}
+    <p style="margin:0 0 8px">${esc(r.summary)}</p>
+    ${r.highlights.length ? `<ul class="inslist">${r.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
+    ${
+      hasGoal
+        ? `<div class="goalbox ${g.coverage >= 100 ? 'ok' : 'short'}">
+            <b>🎯 Objetivo: ${brl(g.amount)} até ${monthLabel(g.until)}</b> <span class="muted small">(${g.months_left} ${g.months_left === 1 ? 'mês' : 'meses'})</span>
+            <div class="goal-bar" role="img" aria-label="Sugestões cobrem ${g.coverage}% do objetivo"><span class="real" style="width:${Math.min(100, g.coverage)}%"></span></div>
+            <div class="small">Precisa sobrar <b>${brl(g.needed_monthly)}/mês</b>. As sugestões abaixo juntam <b>${brl(g.reached)}</b> no prazo: ${g.coverage >= 100 ? '✅' : '⚠️'} ${String(g.coverage).replace('.', ',')}% do objetivo.</div>
+            ${g.feedback ? `<p class="small" style="margin:6px 0 0">${esc(g.feedback)}</p>` : ''}</div>`
+        : ''
+    }
+    ${r.warnings.length ? `<div class="banner" style="margin:8px 0"><b>⚠ Atenção</b><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+    ${
+      r.savings.length
+        ? `<h4 class="docsh">Onde dá para economizar</h4>
+      <div class="table-wrap"><table class="simple num entries"><thead><tr><th>Categoria</th><th class="r">Média/mês</th><th class="r">Sugerido</th><th class="r">Economia/mês</th><th class="r">3 meses</th><th class="r">6 meses</th><th class="r">12 meses</th>${hasGoal ? '<th class="r">Até o prazo</th>' : ''}<th></th></tr></thead>
+      <tbody>${r.savings
+        .map(
+          (x, i) => `<tr><td class="desc"><b>${esc(x.category)}</b><div class="muted small">${esc(x.reason)}</div>${x.actions.length ? `<ul class="inslist small">${x.actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
+            <td class="r">${brl(x.average)}</td><td class="r">${brl(x.target)}</td><td class="r"><b>${brl(x.monthly)}</b></td><td class="r">${brl(x.in3)}</td><td class="r">${brl(x.in6)}</td><td class="r">${brl(x.in12)}</td>${hasGoal ? `<td class="r">${brl(x.until_goal)}</td>` : ''}
+            <td><button class="btn ghost sm" data-usegoal="${i}" title="Criar meta com o valor sugerido">Usar como meta</button></td></tr>`
+        )
+        .join('')}</tbody>
+      <tfoot><tr><td><b>Total</b></td><td></td><td></td><td class="r"><b>${brl(r.total.monthly)}</b></td><td class="r"><b>${brl(r.total.in3)}</b></td><td class="r"><b>${brl(r.total.in6)}</b></td><td class="r"><b>${brl(r.total.in12)}</b></td>${hasGoal ? `<td class="r"><b>${brl(r.total.until_goal)}</b></td>` : ''}<td></td></tr></tfoot></table></div>`
+        : ''
+    }
+    <p class="muted small" style="margin:8px 0 0">Sugestões geradas por IA a partir dos seus totais: confira antes de seguir. Economia = média do período − valor sugerido.</p>`;
+  $('#insSave', box)?.addEventListener('click', async () => {
+    const title = prompt('Nome para esta análise:', insScope(r.params));
+    if (title === null) return;
+    try {
+      await api(`/insights/${r.id}`, { method: 'PATCH', body: { title } });
+      toast('Análise salva');
+      reload();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  $$('[data-usegoal]', box).forEach((b) =>
+    b.addEventListener('click', async () => {
+      const x = r.savings[Number(b.dataset.usegoal)];
+      const cat = state.categories.find((c) => c.name === x.category);
+      if (!cat) return toast('Categoria não encontrada.');
+      try {
+        await api('/budgets', { method: 'PUT', body: { items: [{ category_id: cat.id, monthly_limit: x.target }] } });
+        toast(`Meta de ${x.category}: ${brl(x.target)} por mês`);
+      } catch (err) {
+        toast(err.message);
+      }
+    })
+  );
+}
+
+// Uso de IA: por ação, período e total
+function loadUsage(box, range = state.aiUsageRange || 'month') {
+  state.aiUsageRange = range;
+  const today = new Date().toISOString().slice(0, 10);
+  const ago = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const RANGES = { month: ['Este mês', `${today.slice(0, 8)}01`, today], d30: ['Últimos 30 dias', ago(30), today], d90: ['Últimos 90 dias', ago(90), today], all: ['Tudo', '', ''] };
+  const [, from, to] = RANGES[range];
+  api(`/ai/usage?from=${from}&to=${to}`).then((u) => {
+    const brlOf = (v) => (u.usd_brl && v != null ? ` <span class="muted small">(${brl(v * u.usd_brl)})</span>` : '');
+    const ACTION = { regras: '🏷️ Regras automáticas', insights: '💡 Insights', outro: 'Outros' };
+    const rows = (list, key, label) =>
+      list
+        .map((x) => `<tr><td>${label(x[key])}</td><td class="r">${x.calls}${x.failed ? ` <span class="muted small">(${x.failed} com erro)</span>` : ''}</td><td class="r">${tokens(x.input_tokens)}</td><td class="r">${tokens(x.output_tokens)}</td><td class="r">${usd(x.cost_usd)}${brlOf(x.cost_usd)}</td></tr>`)
+        .join('');
+    const t = u.total;
+    box.innerHTML = `
+      <div class="cardhead"><h2>🧮 Uso de IA <small>${t.calls} ${t.calls === 1 ? 'chamada' : 'chamadas'}</small></h2>
+        <select id="aiUsageRange" class="cmpsel" aria-label="Período">${Object.entries(RANGES).map(([k, [l]]) => `<option value="${k}" ${k === range ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="kpis usagek">
+        <div class="kpi"><div class="label">Custo no período</div><div class="value num">${usd(t.cost_usd || 0)}</div><div class="delta">${u.usd_brl ? `≈ ${brl((t.cost_usd || 0) * u.usd_brl)} (câmbio ${String(u.usd_brl).replace('.', ',')})` : 'em dólar'}</div></div>
+        <div class="kpi"><div class="label">Tokens enviados</div><div class="value num">${tokens(t.input_tokens)}</div><div class="delta">entrada</div></div>
+        <div class="kpi"><div class="label">Tokens recebidos</div><div class="value num">${tokens(t.output_tokens)}</div><div class="delta">saída, inclui raciocínio</div></div>
+      </div>
+      ${
+        t.calls
+          ? `<h4 class="docsh">Por ação</h4><div class="table-wrap"><table class="simple num entries"><thead><tr><th>Ação</th><th class="r">Chamadas</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Custo</th></tr></thead><tbody>${rows(u.by_action, 'action', (a) => ACTION[a] || esc(a))}</tbody></table></div>
+             <h4 class="docsh">Por mês</h4><div class="table-wrap"><table class="simple num entries"><thead><tr><th>Mês</th><th class="r">Chamadas</th><th class="r">Entrada</th><th class="r">Saída</th><th class="r">Custo</th></tr></thead><tbody>${rows(u.by_month, 'month', (m) => monthLabel(m))}</tbody></table></div>`
+          : '<p class="muted small">Nenhuma chamada à IA nesse período.</p>'
+      }
+      <p class="muted small" style="margin:8px 0 0">${
+        u.price
+          ? `Custo estimado pelos tokens: ${esc(u.price.model)} a ${usd(u.price.input)} (entrada) e ${usd(u.price.output)} (saída) por milhão de tokens, ${esc(u.price.source)}. Confira no painel do provedor; ajuste com FF_AI_PRICE_INPUT/OUTPUT.`
+          : 'Custo informado pelo webhook (quando ele devolve "usage").'
+      }${t.without_price ? ` ${t.without_price} chamadas sem preço.` : ''}</p>`;
+    $('#aiUsageRange', box).addEventListener('change', (e) => loadUsage(box, e.target.value));
+  }).catch(() => (box.innerHTML = ''));
 }
 
 // Online x presencial: de onde veio a dedução

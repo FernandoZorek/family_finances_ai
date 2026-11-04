@@ -60,6 +60,10 @@ const config = {
     // valor inicial; o admin liga/desliga em Ajustes (fica salvo no banco)
     auto: env.FF_AI_AUTO === 'true',
     minConfidence: Math.min(1, Math.max(0, Number(env.FF_AI_MIN_CONFIDENCE || 0.8))),
+    // preço por 1 milhão de tokens em USD (sobrepõe a tabela do app) e câmbio opcional para mostrar em R$
+    priceInput: env.FF_AI_PRICE_INPUT ? Number(env.FF_AI_PRICE_INPUT) : null,
+    priceOutput: env.FF_AI_PRICE_OUTPUT ? Number(env.FF_AI_PRICE_OUTPUT) : null,
+    usdBrl: env.FF_USD_BRL ? Number(env.FF_USD_BRL) : null,
   },
 };
 

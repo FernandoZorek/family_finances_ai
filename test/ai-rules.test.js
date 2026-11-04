@@ -19,6 +19,8 @@ const mock = http.createServer((req, res) => {
         // meta acima da média é limitada à média (economia 0, sai da lista); categoria inexistente é ignorada
         savings: [{ category: 'Mercado', monthly_target: 30, reason: 'Comprar no atacado', actions: ['Lista de compras'] },
           { category: 'Inexistente', monthly_target: 1, reason: 'x', actions: [] }],
+        goal_feedback: received.data.goal ? 'Viável com cortes.' : '',
+        usage: { input_tokens: 1000, output_tokens: 500, cost_usd: 0.01, model: 'modelo-teste' },
       }));
     }
     const answer = received.items.map((i) =>
@@ -125,4 +127,58 @@ test('metas de gasto e insights (economia calculada pelo app)', async () => {
 
   assert.equal((await c('PUT', '/api/budgets', { items: [{ category_id: mercado, monthly_limit: 0 }] })).status, 200);
   assert.equal((await c('GET', '/api/budgets')).data.length, 0);
+});
+
+test('insights com filtros, objetivo, salvas e uso de IA', async () => {
+  const { resetRateLimit } = require('../src/insights');
+  const cats = (await c('GET', '/api/categories')).data;
+  const mercado = cats.find((x) => x.key === 'Mercado').id;
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 15).toISOString().slice(0, 7);
+  const opts = (await c('GET', '/api/insights/options')).data;
+  assert.ok(opts.categories.some((x) => x.id === mercado));
+  assert.ok(opts.accounts.some((x) => x.account === 'Manual'));
+
+  // filtros inválidos
+  resetRateLimit();
+  assert.equal((await c('POST', '/api/insights', { from: '2020-01', to: '2023-01' })).status, 400); // > 24 meses
+  assert.equal((await c('POST', '/api/insights', { account: 'Conta que não existe' })).status, 400);
+
+  resetRateLimit();
+  const goalMonth = `${now.getFullYear() + 1}-${String(now.getMonth() + 1).padStart(2, '0')}`; // 13 meses
+  const r = await c('POST', '/api/insights', { from: prevMonth, to: prevMonth, category_id: mercado, account: 'Manual', goal_amount: '1.300', goal_month: goalMonth, guidance: 'Quero economizar' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  // a IA recebeu o recorte e o objetivo; o app calculou o objetivo
+  assert.equal(received.data.scope.category, 'Mercado');
+  assert.equal(received.data.scope.document, 'Manual');
+  assert.match(received.prompt, /Quero economizar/);
+  assert.equal(r.data.goal.months_left, 13);
+  assert.equal(r.data.goal.needed_monthly, 100);
+  assert.equal(r.data.goal.reached, Math.round(r.data.total.monthly * 13 * 100) / 100);
+  assert.equal(r.data.goal.feedback, 'Viável com cortes.');
+  assert.equal(r.data.saved, false);
+
+  // salvar, listar, abrir e excluir
+  assert.equal((await c('PATCH', `/api/insights/${r.data.id}`, { title: 'Mercado em outubro' })).status, 200);
+  const saved = (await c('GET', '/api/insights/saved')).data;
+  assert.equal(saved[0].title, 'Mercado em outubro');
+  assert.equal(saved[0].params.category, 'Mercado');
+  const open = (await c('GET', `/api/insights/${r.data.id}`)).data;
+  assert.equal(open.saved, true);
+  assert.equal(open.summary, 'Gasto estável.');
+  assert.equal((await c('DELETE', `/api/insights/${r.data.id}`)).status, 200);
+  assert.equal((await c('GET', `/api/insights/${r.data.id}`)).status, 404);
+
+  // uso de IA: por ação e total (o webhook informou tokens e custo)
+  const u = (await c('GET', '/api/ai/usage')).data;
+  const ins = u.by_action.find((x) => x.action === 'insights');
+  assert.ok(ins.calls >= 2);
+  assert.equal(ins.input_tokens, ins.calls * 1000);
+  assert.ok(Math.abs(ins.cost_usd - ins.calls * 0.01) < 1e-9);
+  assert.ok(u.by_action.some((x) => x.action === 'regras'));
+  assert.ok(u.total.calls >= ins.calls + 1);
+  const month = new Date().toISOString().slice(0, 7);
+  assert.equal(u.by_month[0].month, month);
+  const none = (await c('GET', '/api/ai/usage?from=2000-01-01&to=2000-01-31')).data;
+  assert.equal(none.total.calls, 0);
 });
