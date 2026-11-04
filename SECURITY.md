@@ -1,7 +1,7 @@
 # Security
 
 Family Finances stores sensitive financial data. Please report vulnerabilities **privately** through
-[GitHub Security Advisories](https://github.com/FernandoZorek/family_finances/security/advisories/new) instead of opening a public issue.
+[GitHub Security Advisories](https://github.com/FernandoZorek/family_finances_ai/security/advisories/new) instead of opening a public issue.
 You should get an answer within a few days.
 
 ## How the app protects your data
