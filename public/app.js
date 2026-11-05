@@ -2122,6 +2122,8 @@ function resultCard(r) {
     <div class="small muted">${esc(r.parser)}${r.holder ? ` · ${esc(r.holder)}` : ''}${r.dueDate ? __(' · vence {0}', { 0: fmtDate(r.dueDate) }) : ''}</div>
     <div class="small" style="margin-top:6px">${r.inserted} ${__('lançamentos importados')}${r.skipped ? __(', {0} já existiam', { 0: r.skipped }) : ''} ${checkPill(r.statedTotal, r.computedTotal)}</div>
     ${r.statedTotal != null ? `<div class="small muted">${__('Conferência')} (${esc(r.totalLabel)}): ${__('banco')} ${brl(r.statedTotal)} · ${__('lido')} ${brl(r.computedTotal)}</div>` : ''}
+    ${r.replaced?.length ? `<div class="small" style="margin-top:4px">🔁 ${__('Substituiu a versão anterior ({0}); suas edições foram mantidas.', { 0: esc(r.replaced.join(', ')) })}</div>` : ''}
+    ${r.partial ? `<div class="small muted" style="margin-top:4px">${__('Fatura ainda aberta: ficou marcada como parcial. Envie a fechada quando sair; ela substitui esta.')}</div>` : ''}
     ${r.warnings.map((w) => `<div class="small" style="color:var(--warn-text)">⚠ ${esc(w)}</div>`).join('')}
   </div>`;
 }
@@ -2325,9 +2327,9 @@ async function viewArquivos(view) {
         <div class="main">
           <div class="title" style="white-space:normal;word-break:break-word">${esc(r.filename)}</div>
           <div class="meta" style="white-space:normal">${esc(r.account || r.bank || '')}${r.kind === 'holerite' ? (r.due_date ? __(' · pago em {0} · líquido {1}', { 0: fmtDate(r.due_date), 1: brl(r.amount_due) }) : '') : `${r.due_date ? __(' · vence {0}', { 0: fmtDate(r.due_date) }) : ''}${r.period_start ? ` · ${fmtDate(r.period_start)} a ${fmtDate(r.period_end)}` : ''}`}</div>
-          <div class="meta" style="white-space:normal">${r.tx_count} ${__('lançamentos · enviado por')} ${esc(r.uploaded_by || '?')} ${__('em')} ${fmtDate(r.created_at.slice(0, 10))} ${checkPill(r.stated_total, r.computed_total)}</div>
+          <div class="meta" style="white-space:normal">${r.tx_count} ${__('lançamentos · enviado por')} ${esc(r.uploaded_by || '?')} ${__('em')} ${fmtDate(r.created_at.slice(0, 10))} ${r.partial ? `<span class="pill proj">${__('parcial')}</span>` : checkPill(r.stated_total, r.computed_total)}</div>
           ${r.warnings.map((w) => `<div class="small" style="color:var(--warn-text)">⚠ ${esc(w)}</div>`).join('')}
-          <div class="actions" style="margin-top:8px"><a class="btn ghost sm" href="/api/imports/${r.id}/file">⬇️ ${__('Original')}</a><button class="btn danger sm" data-del="${r.id}">${__('Remover')}</button></div>
+          <div class="actions" style="margin-top:8px"><a class="btn ghost sm" href="/api/imports/${r.id}/file">⬇️ ${__('Original')}</a>${r.kind === 'cartao' ? `<button class="btn ghost sm" data-partial="${r.id}" data-on="${r.partial ? 0 : 1}">${r.partial ? __('Marcar como fechada') : __('Marcar como parcial')}</button>` : ''}<button class="btn danger sm" data-del="${r.id}">${__('Remover')}</button></div>
         </div>
       </div>`
     )
@@ -2338,6 +2340,13 @@ async function viewArquivos(view) {
       if (!confirm(__('Remover este arquivo e todos os lançamentos dele?'))) return;
       await api(`/imports/${b.dataset.del}`, { method: 'DELETE' });
       toast(__('Arquivo removido'));
+      await loadMeta();
+      viewArquivos(view);
+    })
+  );
+  $$('[data-partial]', view).forEach((b) =>
+    b.addEventListener('click', async () => {
+      await api(`/imports/${b.dataset.partial}`, { method: 'PATCH', body: { partial: b.dataset.on === '1' } });
       await loadMeta();
       viewArquivos(view);
     })

@@ -782,5 +782,10 @@
  "fatura": "factura",
  "extrato": "extracto",
  "Juntar R$ (ex.: 20.000)": "Ahorrar R$ (ej.: 20.000)",
- "Ex.: quero economizar R$ 20 mil até o fim do ano sem cortar a escola das crianças": "Ej.: quiero ahorrar R$ 20 mil hasta fin de año sin recortar la escuela de los niños"
+ "Ex.: quero economizar R$ 20 mil até o fim do ano sem cortar a escola das crianças": "Ej.: quiero ahorrar R$ 20 mil hasta fin de año sin recortar la escuela de los niños",
+ "Substituiu a versão anterior ({0}); suas edições foram mantidas.": "Reemplazó la versión anterior ({0}); se mantuvieron tus ediciones.",
+ "Fatura ainda aberta: ficou marcada como parcial. Envie a fechada quando sair; ela substitui esta.": "Factura aún abierta: quedó marcada como parcial. Sube la cerrada cuando salga; reemplazará a esta.",
+ "parcial": "parcial",
+ "Marcar como fechada": "Marcar como cerrada",
+ "Marcar como parcial": "Marcar como parcial"
 }

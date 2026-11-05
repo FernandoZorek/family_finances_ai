@@ -131,6 +131,8 @@ if (!cols('categories').includes('nature')) db.exec('ALTER TABLE categories ADD 
 db.exec(`CREATE TABLE IF NOT EXISTS cards (account TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'misto')`);
 db.exec(`CREATE TABLE IF NOT EXISTS channel_rules (pattern TEXT PRIMARY KEY, channel TEXT NOT NULL)`);
 if (!cols('transactions').includes('channel')) db.exec('ALTER TABLE transactions ADD COLUMN channel TEXT'); // online | presencial (manual)
+// fatura enviada antes de fechar: o documento do mês continua pendente até chegar a versão fechada
+if (!cols('imports').includes('partial')) db.exec('ALTER TABLE imports ADD COLUMN partial INTEGER NOT NULL DEFAULT 0');
 // Metas de gasto mensais por categoria (categoria-grupo soma as subcategorias)
 db.exec(`CREATE TABLE IF NOT EXISTS budgets (
   id INTEGER PRIMARY KEY,

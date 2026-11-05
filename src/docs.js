@@ -77,7 +77,15 @@ function monthDocs(month, today = new Date()) {
     if (here.length) {
       for (const i of here) {
         const note = i.kind === 'cartao' ? `vencimento ${i.due_date.split('-').reverse().join('/')}` : `pago em ${i.due_date.split('-').reverse().join('/')}`;
-        sent.push({ id: i.id, kind: s.kind, account: s.account, owner: s.owner, filename: i.filename, note, total: i.amount_due });
+        sent.push({ id: i.id, kind: s.kind, account: s.account, owner: s.owner, filename: i.filename, note: i.partial ? `parcial · ${note}` : note, total: i.amount_due, partial: !!i.partial });
+      }
+      // só a versão parcial da fatura: a fechada ainda precisa ser enviada (substitui a parcial)
+      const open = here.filter((i) => i.partial);
+      if (open.length && open.length === here.length) {
+        const due = open[0].due_date;
+        const ready = iso(new Date(new Date(`${due}T12:00:00`).getTime() - 7 * 864e5));
+        missing.push({ kind: s.kind, account: s.account, owner: s.owner, status: todayIso >= ready ? 'falta' : 'aguardando',
+          when: `fatura fechada (a parcial foi enviada), vence ${due.split('-').reverse().join('/')}` });
       }
       continue;
     }

@@ -782,5 +782,10 @@
  "fatura": "bill",
  "extrato": "statement",
  "Juntar R$ (ex.: 20.000)": "Save R$ (e.g. 20,000)",
- "Ex.: quero economizar R$ 20 mil até o fim do ano sem cortar a escola das crianças": "E.g. I want to save R$ 20k by the end of the year without cutting the kids' school"
+ "Ex.: quero economizar R$ 20 mil até o fim do ano sem cortar a escola das crianças": "E.g. I want to save R$ 20k by the end of the year without cutting the kids' school",
+ "Substituiu a versão anterior ({0}); suas edições foram mantidas.": "Replaced the previous version ({0}); your edits were kept.",
+ "Fatura ainda aberta: ficou marcada como parcial. Envie a fechada quando sair; ela substitui esta.": "Bill still open: marked as partial. Upload the closed bill when it is out; it will replace this one.",
+ "parcial": "partial",
+ "Marcar como fechada": "Mark as closed",
+ "Marcar como parcial": "Mark as partial"
 }

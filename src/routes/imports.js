@@ -52,7 +52,7 @@ router.get('/imports', (req, res) => {
     db
       .prepare(`SELECT i.id, i.filename, i.parser, i.bank, i.kind, i.account, i.holder, i.due_date, i.period_start, i.period_end,
                        i.stated_total, i.amount_due, i.computed_total, i.total_label, i.warnings, i.tx_count, i.skipped_count,
-                       i.created_at, u.name AS uploaded_by
+                       i.partial, i.created_at, u.name AS uploaded_by
                 FROM imports i LEFT JOIN users u ON u.id = i.uploaded_by ORDER BY i.created_at DESC, i.id DESC`)
       .all()
       .map((r) => ({ ...r, warnings: JSON.parse(r.warnings || '[]') }))
@@ -63,6 +63,14 @@ router.get('/imports/:id/file', (req, res) => {
   const imp = db.prepare('SELECT filename, stored_path FROM imports WHERE id = ?').get(req.params.id);
   if (!imp || !imp.stored_path || !fs.existsSync(imp.stored_path)) return res.status(404).end();
   res.download(imp.stored_path, imp.filename);
+});
+
+// marcar/desmarcar fatura como parcial (o documento do mês continua pendente até a versão fechada)
+router.patch('/imports/:id', (req, res) => {
+  if (typeof req.body?.partial !== 'boolean') return res.status(400).json({ error: 'Informe partial (true ou false).' });
+  const r = db.prepare('UPDATE imports SET partial = ? WHERE id = ?').run(req.body.partial ? 1 : 0, req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'Importação não encontrada.' });
+  res.json({ ok: true });
 });
 
 router.delete('/imports/:id', (req, res) => {
