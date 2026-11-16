@@ -130,3 +130,23 @@ test('regex: aceita o padrão de milhar e recusa repetição aninhada', () => {
   for (const bad of ['(a+)+', '(.*)*', '(?:\\d{1,3}\\.)*\\d+', '(a{2,})+'])
     assert.throws(() => safeRegex(bad), /repetição aninhada/);
 });
+
+test('PDF de conta: linha só com data e saldo não vira lançamento', () => {
+  const E = require('../src/extractors');
+  const t = E.validateTemplate({
+    kind: 'text', name: 'Banco Z · Conta', bank: 'Banco Z', doc_kind: 'conta', date_format: 'DD/MM/YYYY', decimal: ',', sign: 'as_is',
+    detect: { all: ['BANCO Z', 'Extrato conta corrente'] }, payment_patterns: [], skip: [],
+    line: { regex: '^\\s*(?<date>\\d{2}\\/\\d{2}\\/\\d{4})\\s+(?<description>.+?)\\s+(?<amount>-?\\d{1,3}(?:\\.\\d{3})*,\\d{2})\\s*(?:[\\s\\S]*?)?$' },
+    sections: { start: 'Lançamentos', end: 'Posição consolidada' }, meta: {},
+  });
+  const pages = [`BANCO Z Extrato conta corrente
+Data         Lançamentos         Descrição               Valor (R$)       Saldo (R$)
+12/11/2026                                                                   110,12
+12/11/2026   DÉBITO AUTOMÁTICO   DA NIO FIBRA              -89,90
+10/11/2026                                                                   200,02
+08/11/2026   PIX RECEBIDO        FULANO                   3.100,00
+31/10/2026                                                                   103,18
+Posição consolidada`];
+  const r = E.runText(t, pages);
+  assert.deepEqual(r.transactions.map((x) => [x.date, x.amount]), [['2026-11-12', -89.9], ['2026-11-08', 3100]]);
+});

@@ -20,6 +20,7 @@ async function importFile({ buffer, filename, userId, password, ownerId, templat
 
   const st = await parseStatement(buffer, filename, { password, template, generic, dueDate });
   if (!st.transactions.length) throw new Error('Nenhum lançamento encontrado no arquivo.');
+  st.account = knownAccount(st);
 
   const ctx = loadContext();
   const ownerFor = (holder) => {
@@ -131,6 +132,17 @@ async function importFile({ buffer, filename, userId, password, ownerId, templat
     partial: isOpenBill(st),
     replaced: result.replaced.map((r) => r.filename),
   };
+}
+
+// Mesma conta já enviada por outro leitor (ex.: "Itaú 0079369-2" e "Itaú Conta 079369-2"): usa o nome que já existe,
+// para os documentos do mês e a checagem de duplicados tratarem como a mesma conta
+function knownAccount(st) {
+  const digits = (a) => (String(a || '').match(/\d[\d.\/-]{3,}\d/g) || []).map((x) => x.replace(/\D/g, '').replace(/^0+/, '')).pop() || null;
+  const mine = digits(st.account);
+  if (!mine || !st.kind) return st.account;
+  const first = (a) => String(a || '').trim().split(/\s+/)[0].toLowerCase();
+  const known = db.prepare('SELECT account FROM imports WHERE kind = ? AND account IS NOT NULL GROUP BY account ORDER BY MAX(id) DESC').all(st.kind);
+  return known.find((r) => r.account !== st.account && first(r.account) === first(st.bank || st.account) && digits(r.account) === mine)?.account || st.account;
 }
 
 // Fatura enviada bem antes do vencimento ainda está aberta (fecha ~7 a 10 dias antes de vencer)

@@ -225,6 +225,7 @@ function runText(t, pages) {
     if (!date || Number.isNaN(amount) || !amount) continue;
     if (g.amount != null && t.sign === 'invert') amount = -amount;
     let description = cleanSpaces(g.description);
+    if (!description) continue; // linha só com data e valor é o saldo do dia, não lançamento
     const inst = installmentOf(description);
     if (inst) description = inst.desc;
     transactions.push({ date, description: description || 'Lançamento', amount: round2(amount), installment: inst?.inst || null, payment: isPayment(t, description) });
