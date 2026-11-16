@@ -22,6 +22,12 @@ function monthDocs(month, today = new Date()) {
   // dono pelos lançamentos quando o titular não diz (ex.: conta PJ)
   const ownerOfImport = db.prepare('SELECT u.name FROM transactions t JOIN users u ON u.id = t.owner_id WHERE t.import_id = ? GROUP BY u.id ORDER BY COUNT(*) DESC LIMIT 1');
   const owner = (i) => ownerName(i.holder) || ownerOfImport.get(i.id)?.name || null;
+  // último lançamento já enviado de uma conta (ajuda a mandar o extrato antes da virada do mês)
+  const lastTxOfImport = db.prepare('SELECT MAX(date) AS d FROM transactions WHERE import_id = ?');
+  const lastTx = (items) => {
+    const d = items.map((i) => lastTxOfImport.get(i.id)?.d || i.period_end).filter(Boolean).sort().pop();
+    return d ? ` · último lançamento em ${d.slice(8, 10)}/${d.slice(5, 7)}` : '';
+  };
 
   const first = `${month}-01`;
   const last = `${month}-${String(lastDay(month)).padStart(2, '0')}`;
@@ -69,7 +75,7 @@ function monthDocs(month, today = new Date()) {
         if (gaps.length) {
           const over = last < todayIso;
           missing.push({ kind: 'conta', account: s.account, owner: s.owner, status: over ? 'falta' : 'aguardando',
-            when: over ? `faltam os dias ${rng(gaps)}` : `resto do mês (${rng(gaps)}), disponível a partir de 01/${addMonths(month, 1).slice(5, 7)}` });
+            when: over ? `faltam os dias ${rng(gaps)}` : `resto do mês (${rng(gaps)}), disponível a partir de 01/${addMonths(month, 1).slice(5, 7)}${lastTx(s.items)}` });
         }
         continue;
       }
@@ -98,7 +104,7 @@ function monthDocs(month, today = new Date()) {
     let when;
     if (s.kind === 'conta') {
       expected = iso(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)); // extrato fecha no fim do mês
-      when = `disponível a partir de ${expected.slice(8, 10)}/${expected.slice(5, 7)}`;
+      when = `disponível a partir de ${expected.slice(8, 10)}/${expected.slice(5, 7)}${lastTx(s.items)}`;
     } else {
       const day = Math.min(Number((lastItem?.due_date || '').slice(8, 10)) || 10, lastDay(month));
       expected = `${month}-${String(day).padStart(2, '0')}`;
