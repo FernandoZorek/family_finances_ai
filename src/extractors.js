@@ -208,6 +208,7 @@ function runText(t, pages) {
   const re = safeRegex(t.line.regex);
   const skip = t.skip.map(norm);
   const transactions = [];
+  const balances = [];
   let inSection = !t.sections?.start;
   for (const raw of text.split('\n')) {
     const line = raw.slice(0, MAX_LINE);
@@ -225,12 +226,17 @@ function runText(t, pages) {
     if (!date || Number.isNaN(amount) || !amount) continue;
     if (g.amount != null && t.sign === 'invert') amount = -amount;
     let description = cleanSpaces(g.description);
-    if (!description) continue; // linha só com data e valor é o saldo do dia, não lançamento
+    if (!description) {
+      // linha só com data e valor é o saldo do dia: não é lançamento, mas serve para conferir o extrato
+      balances.push({ date, amount: round2(amount) });
+      continue;
+    }
     const inst = installmentOf(description);
     if (inst) description = inst.desc;
     transactions.push({ date, description: description || 'Lançamento', amount: round2(amount), installment: inst?.inst || null, payment: isPayment(t, description) });
   }
-  const stated = meta.total ? Math.abs(parseAmount(meta.total, t.decimal)) : null;
+  let stated = meta.total ? Math.abs(parseAmount(meta.total, t.decimal)) : null;
+  if (stated == null) stated = balanceChange(t, transactions, balances);
   return finish(t, transactions, {
     stated: Number.isNaN(stated) ? null : stated,
     dueDate,
@@ -239,6 +245,19 @@ function runText(t, pages) {
     periodStart: isoOf(meta.period_start),
     periodEnd: isoOf(meta.period_end),
   });
+}
+
+// Extrato de conta com saldo do dia: variação do saldo (último - primeiro) tem de bater com a soma dos lançamentos.
+// O primeiro saldo só vale se for de antes de todos os lançamentos e o último, de depois (ou do mesmo dia do último).
+function balanceChange(t, transactions, balances) {
+  if (t.doc_kind !== 'conta' || t.total_compare === 'debits' || balances.length < 2 || !transactions.length) return null;
+  const sorted = [...balances].sort((a, b) => a.date.localeCompare(b.date));
+  const dates = transactions.map((x) => x.date).sort();
+  const open = sorted[0];
+  const close = sorted[sorted.length - 1];
+  if (open.date >= dates[0] || close.date < dates[dates.length - 1]) return null;
+  if (sorted.filter((b) => b.date === open.date).length > 1 || sorted.filter((b) => b.date === close.date).length > 1) return null;
+  return round2(close.amount - open.amount);
 }
 
 function runCsv(t, rows, { filename = '', dueDate: dueOverride } = {}) {

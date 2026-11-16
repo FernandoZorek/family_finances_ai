@@ -149,4 +149,9 @@ Data         Lançamentos         Descrição               Valor (R$)       Sal
 Posição consolidada`];
   const r = E.runText(t, pages);
   assert.deepEqual(r.transactions.map((x) => [x.date, x.amount]), [['2026-11-12', -89.9], ['2026-11-08', 3100]]);
+  // saldo foi de 103,18 a 110,12 (+6,94), mas os lançamentos lidos somam 3.010,10: a conferência acusa
+  assert.equal(r.statedTotal, 6.94);
+  assert.equal(r.computedTotal, 3010.1);
+  const ok = E.runText(t, [pages[0].replace('200,02', '3.113,28').replace('110,12', '3.113,28')]);
+  assert.equal(ok.statedTotal, ok.computedTotal);
 });
