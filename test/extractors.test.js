@@ -123,3 +123,10 @@ RESUMO
   assert.throws(() => E.validateTemplate({ ...t, line: { regex: '(?<date>(a+)+)(?<description>.)(?<amount>.)' } }), /aninhada/);
   assert.throws(() => E.validateTemplate({ ...t, line: { regex: '(?<date>x)(?<amount>y)' } }), /description/);
 });
+
+test('regex: aceita o padrão de milhar e recusa repetição aninhada', () => {
+  const { safeRegex } = require('../src/extractors');
+  assert.ok(safeRegex('(?<date>\\d{2}/\\d{2})\\s+(?<description>.+?)\\s+(?<amount>-?\\d{1,3}(?:\\.\\d{3})*,\\d{2})'));
+  for (const bad of ['(a+)+', '(.*)*', '(?:\\d{1,3}\\.)*\\d+', '(a{2,})+'])
+    assert.throws(() => safeRegex(bad), /repetição aninhada/);
+});

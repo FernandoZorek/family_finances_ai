@@ -70,7 +70,7 @@ Regras do modelo:
 - payment_patterns: textos das linhas de pagamento da fatura (ex.: "PAGAMENTO EFETUADO"); skip: textos de linhas a ignorar (saldo, totais, cabeçalhos).
 - PDF (kind "text"):
   - detect.all: 2 a 5 textos FIXOS do layout que identificam este banco e tipo de documento (nome do banco, títulos de seção). NUNCA nomes de pessoas, CPF, números de conta ou valores.
-  - line.regex: regex JavaScript (flag i) aplicada a CADA linha, com grupos nomeados (?<date>...), (?<description>...) e (?<amount>...) ou (?<debit>...)/(?<credit>...). Sem repetição aninhada como (a+)+ e sem \\1. Prefira [\\s\\S] só quando necessário; use .+? para descrição.
+  - line.regex: regex JavaScript (flag i) aplicada a CADA linha, com grupos nomeados (?<date>...), (?<description>...) e (?<amount>...) ou (?<debit>...)/(?<credit>...). Sem repetição aninhada como (a+)+ ou (?:\\d{1,3}\\.)* e sem \\1. Para valores use -?\\d{1,3}(?:\\.\\d{3})*,\\d{2} (ou com . decimal: -?\\d{1,3}(?:,\\d{3})*\\.\\d{2}). Prefira [\\s\\S] só quando necessário; use .+? para descrição.
   - sections.start/end: textos da linha onde começa/termina a lista de lançamentos (ou null).
   - meta.*: regex com UM grupo de captura para conta, titular, vencimento (data), período e total da fatura/variação; null se não houver. total_compare: "sum" (total = soma dos lançamentos) ou "debits" (total = só compras/saídas).
   - columns: use valores nulos e lista vazia. delimiter/header_row: null. due_from_filename: false.

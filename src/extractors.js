@@ -73,7 +73,8 @@ function parseDate(raw, fmt, ctx = {}) {
 // Sem quantificador aninhado ((a+)+, (.*)*) e com tamanho limitado: evita travar o servidor (ReDoS)
 function safeRegex(src, { groups = [] } = {}) {
   if (typeof src !== 'string' || !src || src.length > 400) throw fail('Regex vazia ou longa demais.');
-  if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/.test(src)) throw fail('Regex com repetição aninhada não é aceita.');
+  // repetição de tamanho fixo ({3}) não cria ambiguidade: (?:\.\d{3})* é o padrão de milhar e é seguro
+  if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/.test(src.replace(/(^|[^\\])\{\d+\}/g, '$1'))) throw fail('Regex com repetição aninhada não é aceita.');
   if (/\\[1-9]/.test(src)) throw fail('Regex com referência a grupo não é aceita.');
   let re;
   try {
